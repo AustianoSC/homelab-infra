@@ -1,0 +1,26 @@
+# Secrets: .env is generated from .env.tpl via `op inject` and must never be committed
+.env
+.env.*
+!.env.tpl
+
+# Terraform / OpenTofu
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform/
+.terraform.lock.hcl
+
+# Cluster credentials
+kubeconfig
+*.kubeconfig
+
+# Game server runtime data (bind mount target)
+apps/palworld/palworld/
+
+# Palworld save data must never land in git
+*.sav
+*.zip
+
+# OS / editor noise
+.DS_Store
+*.swp

@@ -1,0 +1,95 @@
+name: palworld
+
+# Palworld dedicated server, exposed via a playit.gg tunnel so no inbound ports
+# are opened on the router. Runs on a Proxmox VM today; this same image and
+# volume layout becomes a Kubernetes StatefulSet with a playit sidecar later.
+#
+# Secrets come from .env, generated with: op inject -i .env.tpl -o .env
+
+services:
+  palworld:
+    image: thijsvanloef/palworld-server-docker:latest
+    container_name: palworld-server
+    restart: unless-stopped
+    # Palworld saves the world on SIGTERM; cutting this short risks save loss.
+    stop_grace_period: 30s
+    ports:
+      - "8211:8211/udp"
+      - "27015:27015/udp"
+      # 8212/tcp is the REST API. Deliberately not published: auto-reboot calls
+      # it from inside the container, and upstream warns against exposing it.
+    # Leaves ~1GB in the 16GB VM for the guest OS, so Docker kills the container
+    # rather than the guest OOM killer picking an arbitrary victim. 16GB matches
+    # Pocketpair's recommended sizing. Ballooning is disabled on this VM: the
+    # guest boots at the balloon floor and Proxmox only grows it reactively,
+    # which loses races against a server that allocates in bursts.
+    mem_limit: 15g
+    environment:
+      PUID: 1000
+      PGID: 1000
+      TZ: America/Los_Angeles
+
+      PORT: 8211
+      PLAYERS: 8
+      SERVER_NAME: "Austin's Homelab Palworld"
+      SERVER_DESCRIPTION: "Running on Proxmox, tunneled via playit.gg"
+      # Not listed publicly; friends connect through the playit address.
+      COMMUNITY: false
+      CROSSPLAY_PLATFORMS: "(Steam)"
+
+      SERVER_PASSWORD: "${PALWORLD_SERVER_PASSWORD:?missing .env, run op inject}"
+      ADMIN_PASSWORD: "${PALWORLD_ADMIN_PASSWORD:?missing .env, run op inject}"
+
+      # REST API stays internal. AUTO_REBOOT and AUTO_PAUSE both depend on it.
+      REST_API_ENABLED: true
+      REST_API_PORT: 8212
+      ENABLE_PLAYER_LOGGING: true
+
+      # Replaces the deprecated MULTITHREADING flag.
+      ENABLE_PERF_THREADING_ARGS: true
+      # WORKER_THREADS_SERVER: 6  # tuning knob; game default is used when unset
+
+      # Must stay true on first boot or the server is never installed.
+      UPDATE_ON_BOOT: true
+      # Clients auto-update through Steam, so the server has to keep pace or
+      # nobody can connect after a patch.
+      AUTO_UPDATE_ENABLED: true
+      AUTO_UPDATE_CRON_EXPRESSION: "0 4 * * *"
+      AUTO_UPDATE_WARN_MINUTES: 15
+
+      # Palworld's server process leaks memory over long uptimes; a nightly
+      # restart is the standard mitigation.
+      AUTO_REBOOT_ENABLED: true
+      AUTO_REBOOT_CRON_EXPRESSION: "0 5 * * *"
+      AUTO_REBOOT_WARN_MINUTES: 5
+      AUTO_REBOOT_EVEN_IF_PLAYERS_ONLINE: false
+
+      BACKUP_ENABLED: true
+      BACKUP_CRON_EXPRESSION: "0 3 * * *"
+      DELETE_OLD_BACKUPS: true
+      OLD_BACKUP_DAYS: 14
+
+      # Enable once the server is proven stable: idles the process while empty,
+      # which matters on a 32GB host. Left off initially so first-run behaviour
+      # is easy to reason about.
+      AUTO_PAUSE_ENABLED: false
+
+      # Opt-in mitigation for negative DeltaTime, which VMs can hit when the
+      # guest clock jumps. Enable if the server logs time-related errors.
+      PALWORLD_ALLOW_NEGATIVE_DELTA_TIME: false
+    volumes:
+      - ./palworld:/palworld/
+
+  playit:
+    image: ghcr.io/playit-cloud/playit-agent:latest
+    container_name: playit-agent
+    restart: unless-stopped
+    # Host networking because playit tunnels only accept an IP as the local
+    # address, not a container hostname (playit-agent#103). This also mirrors
+    # the eventual Kubernetes sidecar, where both containers share a network
+    # namespace and the target is likewise 127.0.0.1:8211.
+    network_mode: host
+    environment:
+      SECRET_KEY: "${PLAYIT_SECRET_KEY:?missing .env, run op inject}"
+    depends_on:
+      - palworld
