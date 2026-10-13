@@ -11,7 +11,7 @@ and rebuilt from this repo with no manual steps.
 | Distribution | k3s on Ubuntu 24.04 VMs | Light enough for 32GB; works with Ansible (Talos would replace Ansible) |
 | Topology | 1 server + 2 agents | Shows scheduling, taints and draining; 3 servers would cost ~6GB for HA that one host can't provide |
 | Provisioning | OpenTofu + `bpg/proxmox` provider | Well maintained; supports cloud images and cloud-init |
-| State | Local, encrypted with OpenTofu state encryption | Single operator; move to a remote backend when CI runs `tofu` |
+| State | AWS S3 (versioned, native lockfile locking), encrypted client-side with OpenTofu state encryption | Work happens from both the WSL desktop and a MacBook; S3 is the backend's native target, and versioning allows rolling back a bad state write |
 | Secrets | 1Password, injected with `op run` | No secrets in the repo, encrypted or otherwise |
 | Load balancing | MetalLB in L2 mode (k3s `servicelb` disabled) | Game servers need UDP/TCP Services with fixed LAN IPs |
 | VM disks | qcow2 files on the existing ext4 directory storages | Already set up; matches VM 200; qcow2 supports snapshots. LVM-thin would mean wiping the NVMe for a small speed gain |
@@ -152,22 +152,66 @@ and every data disk is already an ext4 directory storage with `images` and
 5. No firewall change needed. Friends' WireGuard rules already block the new
    nodes.
 
-## Step 5: Secrets in 1Password
+## Step 5: Secrets and the state bucket
+
+### Secrets in 1Password
 
 | Item | How to make it |
 | --- | --- |
 | Proxmox API token | Step 3 |
 | State encryption passphrase | Long random string. If it's lost, the state can't be read. |
+| AWS access key for the state user | Created by hand after the bootstrap below |
 | k3s join token | `openssl rand -hex 32` |
 
 Add `.env.tpl` files with `op://` references in `tofu/homelab/` and `ansible/`.
 Run commands as `op run --env-file=.env.tpl -- <command>` so values never touch
 disk.
 
+### Bootstrap the S3 state bucket
+
+A small separate stack in `tofu/bootstrap/` creates what the main stack's
+backend depends on. Run it once with your own AWS admin credentials (for
+example an `aws sso login` profile), not the state user's key.
+
+- Bucket `austianosc-homelab-tofu-state` in `us-west-2`:
+  - Versioning on, so a bad state write can be rolled back.
+  - All public access blocked, and SSE-S3 default encryption.
+  - A lifecycle rule that expires noncurrent versions after 90 days.
+- IAM user `homelab-tofu-state` with a policy scoped to this bucket only:
+  - `s3:ListBucket` on the bucket.
+  - `s3:GetObject`, `s3:PutObject` and `s3:DeleteObject` on objects in it
+    (the delete is needed to release `.tflock` lock files).
+- No access key in OpenTofu. A key created by OpenTofu would be stored in
+  state, so create it by hand
+  (`aws iam create-access-key --user-name homelab-tofu-state`) and save it
+  straight into 1Password.
+
+The bootstrap stack starts with local state. Once the bucket exists, add a
+backend block pointing at `bootstrap/terraform.tfstate` in the same bucket and
+run `tofu init -migrate-state`, so nothing lives only on one laptop.
+
+Check: `aws s3api get-bucket-versioning --bucket austianosc-homelab-tofu-state`
+reports `Enabled`.
+
 ## Step 6: Create the VMs with OpenTofu
 
 Files in `tofu/modules/proxmox-vm/` and `tofu/homelab/`:
 
+- `backend.tf`:
+
+  ```hcl
+  terraform {
+    backend "s3" {
+      bucket       = "austianosc-homelab-tofu-state"
+      key          = "homelab/terraform.tfstate"
+      region       = "us-west-2"
+      use_lockfile = true
+    }
+  }
+  ```
+
+  Credentials come from `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in
+  `.env.tpl`.
 - `providers.tf`:
   - `bpg/proxmox`, pinned to a version.
   - Endpoint `https://homelab.internal:8006/`.
@@ -209,6 +253,7 @@ Run:
 ```bash
 cd tofu/homelab
 op run --env-file=.env.tpl -- tofu init
+tofu providers lock -platform=linux_amd64 -platform=darwin_arm64   # lock file works on WSL and the Mac
 op run --env-file=.env.tpl -- tofu plan
 op run --env-file=.env.tpl -- tofu apply
 ```
@@ -217,8 +262,10 @@ Check:
 
 - `ssh austin@<node-ip>` works on all three nodes.
 - The Proxmox UI shows each VM's IP from the guest agent.
-- `head -c 20 terraform.tfstate` shows encrypted JSON, not readable resource
-  data.
+- `aws s3 cp s3://austianosc-homelab-tofu-state/homelab/terraform.tfstate - | head -c 200`
+  shows an encrypted payload, not readable resource data.
+- No `terraform.tfstate` file exists locally.
+- `tofu plan` from the other machine (WSL or the Mac) reports no changes.
 
 ## Step 7: Install k3s with Ansible
 
@@ -304,8 +351,8 @@ no manual steps. Note how long the rebuild takes for the README.
 - Makefile targets: `plan`, `apply`, `cluster`, `kubeconfig`, `destroy`.
 - `.github/workflows/lint.yml`: `tofu fmt -check`, `tofu validate`, `tflint`
   and `ansible-lint` on pull requests. Lint only; CI never runs `apply`.
-- `docs/adr/`: k3s over Talos, one control plane, local encrypted state,
-  MetalLB over servicelb, local-path over Longhorn.
+- `docs/adr/`: k3s over Talos, one control plane, encrypted state in S3 (over
+  R2 and local state), MetalLB over servicelb, local-path over Longhorn.
 - README: tick off roadmap items, add an architecture diagram, and add a
   "rebuild from zero" section.
 
@@ -329,4 +376,3 @@ no manual steps. Note how long the rebuild takes for the README.
    - Keep VM 200 stopped for a week as a rollback, then delete it and grow
      `k3s-worker-1` to 16GB.
 4. Later: codify the router's WireGuard peers and firewall rules with Ansible.
-   Move state to a remote backend when CI starts running `tofu`.
