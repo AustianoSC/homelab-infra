@@ -3,12 +3,17 @@
 .env.*
 !.env.tpl
 
-# Terraform / OpenTofu
+# OpenTofu. State stays out of git even when encrypted; .terraform.lock.hcl is
+# committed so provider versions and checksums are pinned.
 *.tfstate
 *.tfstate.*
+*.tfplan
 *.tfvars
 .terraform/
-.terraform.lock.hcl
+crash.log
+
+# Ansible
+*.retry
 
 # Cluster credentials
 kubeconfig

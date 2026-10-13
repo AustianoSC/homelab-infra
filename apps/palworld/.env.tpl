@@ -7,4 +7,3 @@
 
 PALWORLD_SERVER_PASSWORD=op://homelab/palworld/server-password
 PALWORLD_ADMIN_PASSWORD=op://homelab/palworld/admin-password
-PLAYIT_SECRET_KEY=op://homelab/playit/secret-key

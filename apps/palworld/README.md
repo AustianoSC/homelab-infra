@@ -1,7 +1,9 @@
 # Palworld dedicated server
 
-Runs on Proxmox VM 200 (Ubuntu 24.04, 12GB RAM, 6 vCPU, disk on the 1TB SATA
-SSD). Exposed via playit.gg so no router ports are forwarded.
+Runs on Proxmox VM 200 (Ubuntu 24.04, 20GB RAM, 6 vCPU, 50GB disk on
+`sata-ssd-1tb`) at `192.168.8.119`, which `palworld.internal` resolves to.
+The VM was created by hand and is deliberately not managed by OpenTofu; it is
+deleted once the server moves onto the cluster.
 
 Palworld's own documentation warns that low-performance storage can corrupt save
 data, which is why this lives on the SSD and not the 2TB HDD.
@@ -19,12 +21,14 @@ The first boot downloads the server via SteamCMD and takes several minutes.
 
 ## Connecting
 
-- From the LAN: `<VM_IP>:8211`
-- From anywhere: the address shown on the playit.gg tunnel
+Connect to `palworld.internal:8211` (or `192.168.8.119:8211`) from the LAN or
+over WireGuard. No game ports are forwarded on the router.
 
-The playit tunnel must be **UDP**. A TCP tunnel looks perfectly healthy in the
-dashboard while nobody is able to join. Set its local address to `127.0.0.1`
-port `8211`, which works because the agent runs with host networking.
+Friends get their own WireGuard peer on the router. The router firewall only
+lets those peers reach the AdGuard DNS server and this VM, so they can't see
+the rest of the LAN. The firewall rule and the peers' `AllowedIPs` both name
+the VM's IP, and the VM gets its address over DHCP, so the router needs a DHCP
+reservation for it.
 
 ## Migrating a local co-op save
 
@@ -73,3 +77,10 @@ sits at the account level rather than in the world folder and is easy to miss.
 - Backups run at 03:00 with 14-day retention.
 - `AUTO_PAUSE_ENABLED` idles the process while the server is empty. Worth
   turning on once things are stable, given the 32GB host budget.
+- `compose.yaml` here is the source of truth. After editing it, copy it to the
+  VM and recreate the container:
+
+  ```bash
+  rsync -a apps/palworld/compose.yaml palworld:~/palworld/compose.yaml
+  ssh palworld 'cd ~/palworld && docker compose up -d'
+  ```

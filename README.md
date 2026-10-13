@@ -1,51 +1,76 @@
 # homelab-infra
 
 Infrastructure-as-code for a single-node Proxmox homelab, built as a platform
-engineering portfolio project. The long-term goal is a k3s cluster provisioned
-with OpenTofu and Ansible, managed by GitOps, running CI/CD for my personal
-projects. This repository is the record of getting there.
+engineering portfolio project. The goal is a k3s cluster provisioned with
+OpenTofu and configured with Ansible, managed by GitOps, running game servers
+for friends and CI/CD for my personal projects. This repository is the record
+of getting there.
 
 ## Hardware
 
-| Component | Spec |
-| --- | --- |
-| CPU | Intel i9-12900K (8 P-cores + 8 E-cores, 24 threads) |
-| RAM | 32GB DDR5 |
-| GPU | NVIDIA GTX 1080 (8GB, reserved for later passthrough) |
-| Boot | 500GB SATA SSD (Proxmox VE) |
-| Fast storage | 1TB NVMe (future k3s node disks) |
-| Bulk storage | 1TB SATA SSD (application data) |
-| Backups | 2TB 7200rpm HDD |
+| Component | Spec | Proxmox storage |
+| --- | --- | --- |
+| CPU | Intel i9-12900K (8 P-cores + 8 E-cores, 24 threads) | |
+| RAM | 32GB DDR5 | |
+| GPU | NVIDIA GTX 1080 (8GB, reserved for later passthrough) | |
+| Boot | 500GB SATA SSD (Proxmox VE 9) | `local`, `local-lvm` |
+| Fast storage | 1TB NVMe (k3s node boot disks) | `nvme-ssd-1tb` |
+| Bulk storage | 1TB SATA SSD (application data) | `sata-ssd-1tb` |
+| Backups | 2TB 7200rpm HDD | `hdd-2tb` |
 
 The 32GB memory ceiling is the defining constraint of this project and drives
 most of the design decisions recorded here.
 
 ## Current state
 
-Phase 1: a Palworld dedicated server running in a Proxmox VM, exposed through a
-playit.gg tunnel. See [apps/palworld](apps/palworld).
+- **Running:** a Palworld dedicated server on a hand-built Proxmox VM, reached
+  by friends over WireGuard. See [apps/palworld](apps/palworld).
+- **In progress:** phase 1, the k3s cluster. See the
+  [plan](docs/plans/phase-1-cluster.md) and
+  [checklist](docs/plans/phase-1-checklist.md).
 
-The VM itself is intentionally not managed by OpenTofu. It is a disposable
+The Palworld VM is intentionally not managed by OpenTofu. It is a disposable
 artifact that gets deleted when the workload moves onto Kubernetes, so the
 durable piece is the compose file, which translates directly into a StatefulSet.
 
 ## Roadmap
 
-- [x] Palworld server on a VM, tunneled via playit.gg
-- [ ] OpenTofu with encrypted remote state on Cloudflare R2
+- [x] Palworld server on a VM, reachable over WireGuard
+- [ ] OpenTofu with encrypted local state
 - [ ] k3s cluster provisioned by OpenTofu, configured by Ansible
 - [ ] GitOps with Argo CD
+- [ ] Minecraft server on the cluster
 - [ ] Migrate Palworld from the VM onto the cluster
+- [ ] Router WireGuard peers and firewall rules managed by Ansible
 - [ ] Observability (VictoriaMetrics + Grafana)
-- [ ] Self-hosted GitHub Actions runners
+- [ ] Self-hosted GitHub Actions runners, with OpenTofu state moved to a remote
+      backend once CI runs it
+
+## Repository layout
+
+```
+apps/        Workloads that run outside the cluster today (Docker Compose)
+docs/plans/  Phase plans and checklists
+```
+
+Planned as phase 1 lands:
+
+```
+tofu/        OpenTofu: Proxmox VMs for the k3s nodes
+ansible/     Ansible: node baseline and k3s install
+kubernetes/  Manifests and Helm values, later managed by Argo CD
+docs/adr/    Architecture decision records
+```
 
 ## Secrets
 
 No secrets live in this repository, encrypted or otherwise. Files ending in
 `.env.tpl` contain 1Password secret references (`op://vault/item/field`) and are
-safe to commit. The real `.env` is generated locally and gitignored:
+safe to commit. The real values are injected at run time, or generated into a
+gitignored `.env`:
 
 ```bash
+op run --env-file=.env.tpl -- <command>
 op inject -i .env.tpl -o .env
 ```
 
@@ -54,8 +79,20 @@ will fill the same role for in-cluster workloads.
 
 ## Networking
 
-Nothing is exposed inbound on the public IP. Administrative access arrives over
-WireGuard terminated on the router; game traffic leaves through an outbound
-playit.gg tunnel. Internal name resolution uses `.internal` via AdGuard Home
-(not `.local`, which macOS reserves for mDNS and refuses to resolve over
-unicast DNS).
+Nothing is exposed on the public IP except the router's WireGuard listener.
+Administrative access and friends' game traffic both arrive over WireGuard
+terminated on the router (a GL.iNet Flint 3). Friends' peers are restricted by
+the router firewall to the DNS server and the game server, so they can't reach
+the rest of the LAN.
+
+Internal name resolution uses `.internal` via AdGuard Home on the router (not
+`.local`, which macOS reserves for mDNS and refuses to resolve over unicast
+DNS).
+
+| Name | Address |
+| --- | --- |
+| Router, AdGuard DNS (`router.internal`) | `192.168.8.1` |
+| Proxmox host (`homelab.internal`) | `192.168.8.150` |
+| Palworld VM (`palworld.internal`) | `192.168.8.119` |
+| k3s nodes (planned) | `192.168.8.11` - `192.168.8.13` |
+| MetalLB pool (planned) | `192.168.8.50` - `192.168.8.59` |

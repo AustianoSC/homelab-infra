@@ -1,8 +1,9 @@
 name: palworld
 
-# Palworld dedicated server, exposed via a playit.gg tunnel so no inbound ports
-# are opened on the router. Runs on a Proxmox VM today; this same image and
-# volume layout becomes a Kubernetes StatefulSet with a playit sidecar later.
+# Palworld dedicated server. Friends reach it over WireGuard terminated on the
+# router, whose firewall limits their peers to the DNS server and this VM, so
+# no game ports are forwarded. Runs on a Proxmox VM today; the same image and
+# volume layout becomes a Kubernetes StatefulSet after the migration.
 #
 # Secrets come from .env, generated with: op inject -i .env.tpl -o .env
 
@@ -18,12 +19,12 @@ services:
       - "27015:27015/udp"
       # 8212/tcp is the REST API. Deliberately not published: auto-reboot calls
       # it from inside the container, and upstream warns against exposing it.
-    # Leaves ~1GB in the 16GB VM for the guest OS, so Docker kills the container
-    # rather than the guest OOM killer picking an arbitrary victim. 16GB matches
-    # Pocketpair's recommended sizing. Ballooning is disabled on this VM: the
-    # guest boots at the balloon floor and Proxmox only grows it reactively,
-    # which loses races against a server that allocates in bursts.
-    mem_limit: 15g
+    # Leaves ~1GB in the 20GB VM for the guest OS, so Docker kills the container
+    # rather than the guest OOM killer picking an arbitrary victim. Ballooning
+    # is disabled on this VM: the guest boots at the balloon floor and Proxmox
+    # only grows it reactively, which loses races against a server that
+    # allocates in bursts.
+    mem_limit: 19g
     environment:
       PUID: 1000
       PGID: 1000
@@ -31,9 +32,12 @@ services:
 
       PORT: 8211
       PLAYERS: 8
+      # PUBLIC_IP is deliberately unset. Clients connect to the VM's LAN
+      # address over WireGuard, and the playit-era override pointed at a relay
+      # address that no longer exists.
       SERVER_NAME: "Austin's Homelab Palworld"
-      SERVER_DESCRIPTION: "Running on Proxmox, tunneled via playit.gg"
-      # Not listed publicly; friends connect through the playit address.
+      SERVER_DESCRIPTION: "Running on Proxmox, reachable over WireGuard"
+      # Not listed publicly; friends connect by address over WireGuard.
       COMMUNITY: false
       CROSSPLAY_PLATFORMS: "(Steam)"
 
@@ -47,7 +51,8 @@ services:
 
       # Replaces the deprecated MULTITHREADING flag.
       ENABLE_PERF_THREADING_ARGS: true
-      # WORKER_THREADS_SERVER: 6  # tuning knob; game default is used when unset
+      # Matches the VM's 6 vCPUs.
+      WORKER_THREADS_SERVER: 6
 
       # Must stay true on first boot or the server is never installed.
       UPDATE_ON_BOOT: true
@@ -77,19 +82,10 @@ services:
       # Opt-in mitigation for negative DeltaTime, which VMs can hit when the
       # guest clock jumps. Enable if the server logs time-related errors.
       PALWORLD_ALLOW_NEGATIVE_DELTA_TIME: false
+
+      # Lets players move pals between worlds through the Global Palbox.
+      ALLOW_GLOBAL_PALBOX_EXPORT: true
+      ALLOW_GLOBAL_PALBOX_IMPORT: true
+
     volumes:
       - ./palworld:/palworld/
-
-  playit:
-    image: ghcr.io/playit-cloud/playit-agent:latest
-    container_name: playit-agent
-    restart: unless-stopped
-    # Host networking because playit tunnels only accept an IP as the local
-    # address, not a container hostname (playit-agent#103). This also mirrors
-    # the eventual Kubernetes sidecar, where both containers share a network
-    # namespace and the target is likewise 127.0.0.1:8211.
-    network_mode: host
-    environment:
-      SECRET_KEY: "${PLAYIT_SECRET_KEY:?missing .env, run op inject}"
-    depends_on:
-      - palworld
