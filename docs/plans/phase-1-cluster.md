@@ -35,20 +35,21 @@ and rebuilt from this repo with no manual steps.
 
 ## Memory budget
 
-VM 200 (the current Palworld server) keeps running during phase 1, so the
-nodes start small and grow after the Palworld cutover. VM 200 is currently
-20GB, which together with the nodes would leave the host nothing at peak, so
-step 3 shrinks it to 16GB first.
+VM 200 (the old Palworld server, 20GB) is shut down for the rest of the
+migration (step 3), so the nodes are built at their final sizes from the start.
 
-| VM | vCPU | RAM in phase 1 | RAM after cutover | Runs |
-| --- | --- | --- | --- | --- |
-| k3s-cp-1 | 2 | 3GB | 3GB | Control plane (tainted) |
-| k3s-worker-1 | 8 | 4GB | 16GB | Palworld |
-| k3s-worker-2 | 4 | 4GB | 8GB | Minecraft, Argo CD, MetalLB, monitoring |
-| VM 200 | 6 | 16GB (now 20GB) | deleted | Current Palworld server |
+| VM | vCPU | RAM | Runs |
+| --- | --- | --- | --- |
+| k3s-cp-1 | 2 | 3GB | Control plane (tainted) |
+| k3s-worker-1 | 8 | 16GB | Palworld |
+| k3s-worker-2 | 4 | 8GB | Minecraft, Argo CD, MetalLB, monitoring |
+| VM 200 | 6 | 0 (shut down, 20GB if started) | Old Palworld server, kept as a rollback |
 
-This leaves about 4GB for the Proxmox host in both stages. Ballooning is off on
-all nodes because the kubelet reads node memory once at startup.
+This leaves about 4GB for the Proxmox host. Ballooning is off on all nodes
+because the kubelet reads node memory once at startup.
+
+Don't start VM 200 while the cluster is running at these sizes: 20GB on top of
+27GB of nodes overcommits the host. To roll back, stop the cluster VMs first.
 
 ## Network plan
 
@@ -56,16 +57,38 @@ all nodes because the kubelet reads node memory once at startup.
 | --- | --- |
 | Router / AdGuard DNS | 192.168.8.1 |
 | Proxmox host (static) | 192.168.8.150 |
-| VM 200, Palworld (DHCP) | 192.168.8.119 |
+| VM 200, Palworld (DHCP, shut down) | 192.168.8.119 |
 | k3s-cp-1 | 192.168.8.11 |
 | k3s-worker-1 | 192.168.8.12 |
 | k3s-worker-2 | 192.168.8.13 |
-| MetalLB pool | 192.168.8.50 - 192.168.8.59 |
+| MetalLB `games` pool | 192.168.8.48/29 (.48 - .55) |
+| MetalLB `general` pool | 192.168.8.56/29 (.56 - .63) |
 
-The k3s nodes and MetalLB pool must sit outside the router's DHCP pool (the
+The k3s nodes and MetalLB pools must sit outside the router's DHCP pool (the
 GL.iNet default is .100 - .249). The Proxmox host and VM 200 sit inside it, so
 both need DHCP reservations to keep the router from handing their addresses
 to another device.
+
+### Game server addresses
+
+Game servers get a dedicated CIDR-aligned block, so friend access is one
+firewall rule and one `AllowedIPs` entry no matter how many games run.
+
+| Address | Service |
+| --- | --- |
+| 192.168.8.48 | Palworld (UDP 8211) |
+| 192.168.8.49 | Minecraft (TCP 25565) |
+| 192.168.8.50 - .55 | Free for future games |
+
+- The `games` pool sets `autoAssign: false`, so Traefik and other Services
+  can't take a game IP. Each game Service pins its address with the
+  `metallb.io/loadBalancerIPs` annotation.
+- Friends' `AllowedIPs`: `192.168.8.1/32, 192.168.8.48/29`. The router
+  firewall allows the same block, limited to the game ports.
+- This is a block of addresses in the existing /24, not a VLAN. A VLAN for the
+  load-balancer IPs alone adds little isolation, because the nodes behind them
+  sit on the main LAN anyway. Real segmentation means moving the whole cluster
+  into its own VLAN, which is a separate project.
 
 ---
 
@@ -118,13 +141,22 @@ and every data disk is already an ext4 directory storage with `images` and
 1. Storage: no changes needed. Node boot disks and cloud-init snippets go on
    `nvme-ssd-1tb`, worker data disks on `sata-ssd-1tb`, and the cloud image on
    `local` (which already allows `import`).
-2. Shrink VM 200 from 20GB to 16GB so the nodes fit (see "Memory budget").
-   Do it when nobody is playing, since the server restarts:
-   1. Set `mem_limit: 15g` in `apps/palworld/compose.yaml` and update the
-      "20GB VM" comments to 16GB.
-   2. `ssh palworld 'cd ~/palworld && docker compose down'`
-   3. `ssh root@homelab.internal 'qm shutdown 200 && qm set 200 --memory 16384 && qm start 200'`
-   4. Copy the compose file over and start it (see `apps/palworld/README.md`).
+2. Shut down VM 200 for the rest of the migration, keeping the world safe
+   first:
+
+   ```bash
+   # Stop the container cleanly so the world is flushed to disk
+   ssh palworld 'cd ~/palworld && docker compose down'
+
+   # Copy the save off the VM, outside the repo
+   rsync -a palworld:~/palworld/palworld/Pal/Saved/ ~/backups/palworld-2026-10-14/
+
+   # Shut down, stop it auto-starting, and take a full backup to the HDD
+   ssh root@homelab.internal 'qm shutdown 200 && qm set 200 --onboot 0 && vzdump 200 --storage hdd-2tb --mode stop --compress zstd'
+   ```
+
+   `--onboot 0` keeps a host reboot from starting VM 200 on top of the
+   cluster (see "Memory budget").
 3. Create an API user and token for OpenTofu:
 
    ```bash
@@ -145,7 +177,7 @@ and every data disk is already an ext4 directory storage with `images` and
 1. Check the router's DHCP pool range.
 2. Add DHCP reservations for the Proxmox host (`192.168.8.150`) and VM 200
    (`192.168.8.119`, MAC `BC:24:11:F2:BB:4E`) if they aren't there already.
-   The friends' firewall rule depends on VM 200's address.
+   VM 200's address matters until it's deleted, since a rollback depends on it.
 3. Ping each planned IP to make sure nothing already uses it.
 4. Add AdGuard rewrites: `k3s-cp-1.internal`, `k3s-worker-1.internal` and
    `k3s-worker-2.internal`.
@@ -227,8 +259,8 @@ Files in `tofu/modules/proxmox-vm/` and `tofu/homelab/`:
   locals {
     nodes = {
       k3s-cp-1     = { vmid = 301, ip = "192.168.8.11", cores = 2, memory = 3072, role = "server", data_disk = 0 }
-      k3s-worker-1 = { vmid = 311, ip = "192.168.8.12", cores = 8, memory = 4096, role = "agent",  data_disk = 100 }
-      k3s-worker-2 = { vmid = 312, ip = "192.168.8.13", cores = 4, memory = 4096, role = "agent",  data_disk = 50 }
+      k3s-worker-1 = { vmid = 311, ip = "192.168.8.12", cores = 8, memory = 16384, role = "agent", data_disk = 100 }
+      k3s-worker-2 = { vmid = 312, ip = "192.168.8.13", cores = 4, memory = 8192,  role = "agent", data_disk = 50 }
     }
   }
   ```
@@ -326,11 +358,17 @@ Check:
    helm install metallb metallb/metallb -n metallb-system --create-namespace
    ```
 
-2. Apply an `IPAddressPool` (192.168.8.50 - .59) and an `L2Advertisement`
-   from `kubernetes/infra/metallb/`, so Argo CD can take them over later.
-3. Load balancer test: deploy nginx with a `LoadBalancer` Service. It should
-   get an IP from the pool, and `curl` should work from your PC. Traefik will
-   also take a pool IP; that's expected.
+2. Apply two `IPAddressPool`s and an `L2Advertisement` covering both, from
+   `kubernetes/infra/metallb/`, so Argo CD can take them over later:
+   - `games`: `192.168.8.48/29`, `autoAssign: false`.
+   - `general`: `192.168.8.56/29`.
+3. Load balancer tests:
+   - Deploy nginx with a plain `LoadBalancer` Service. It should get an IP
+     from `general`, and `curl` should work from your PC. Traefik also takes a
+     `general` IP; that's expected.
+   - Add the annotation `metallb.io/loadBalancerIPs: 192.168.8.50` and check
+     the Service moves to that address, which proves pinning from the `games`
+     pool works.
 4. Storage test: create a PVC and a pod pinned to `k3s-worker-1` that writes
    a file. Check the file shows up under `/var/lib/rancher/k3s/storage`.
 5. Delete the test resources.
@@ -362,17 +400,21 @@ no manual steps. Note how long the rebuild takes for the README.
 
 1. Argo CD, then hand MetalLB over to it.
 2. Minecraft (`itzg/minecraft-server`, ~4GB heap, 5-6GB pod) as the first real
-   workload.
-3. Palworld cutover:
-   - Stop VM 200 (it saves on SIGTERM).
-   - `rsync` the `palworld/` directory into the new PVC. Don't bring
+   workload, pinned to `192.168.8.49`. This is when friend access moves to the
+   game block: add `192.168.8.48/29` to the router firewall rule (UDP 8211,
+   TCP 25565) and to each friend's `AllowedIPs`, alongside `192.168.8.119`.
+   This is the last change to friends' configs; later games are covered.
+3. Palworld cutover (VM 200 is already shut down, with the save copied off in
+   step 3):
+   - `rsync` the saved `Pal/Saved/` directory into the new PVC. Don't bring
      `WorldOption.sav` along.
-   - Run a StatefulSet with the same image and environment variables.
-     `PUBLIC_IP` is the Service's fixed MetalLB IP, set with the
-     `loadBalancerIPs` annotation, and the Service uses
-     `externalTrafficPolicy: Local`.
-   - Update the router firewall rule, the AdGuard record, and friends'
-     WireGuard `AllowedIPs` if the IP changed.
-   - Keep VM 200 stopped for a week as a rollback, then delete it and grow
-     `k3s-worker-1` to 16GB.
+   - Run a StatefulSet with the same image and environment variables. The
+     Service is pinned to `192.168.8.48` with the `metallb.io/loadBalancerIPs`
+     annotation and uses `externalTrafficPolicy: Local`. Leave `PUBLIC_IP`
+     unset, as on the VM; set it to `192.168.8.48` only if clients fail to
+     connect.
+   - Point `palworld.internal` at `192.168.8.48` in AdGuard.
+   - Delete VM 200 and its backup once the server has run on the cluster for
+     a week. Then remove `192.168.8.119` from the firewall rule and friends'
+     `AllowedIPs` (leaving it there is harmless if a friend doesn't update).
 4. Later: codify the router's WireGuard peers and firewall rules with Ansible.

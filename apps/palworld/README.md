@@ -5,6 +5,10 @@ Runs on Proxmox VM 200 (Ubuntu 24.04, 20GB RAM, 6 vCPU, 50GB disk on
 The VM was created by hand and is deliberately not managed by OpenTofu; it is
 deleted once the server moves onto the cluster.
 
+**The VM is currently shut down** (with `onboot 0` and a `vzdump` backup on
+`hdd-2tb`) to free its 20GB for the k3s cluster. Don't start it while the
+cluster VMs are running, or the host runs out of memory.
+
 Palworld's own documentation warns that low-performance storage can corrupt save
 data, which is why this lives on the SSD and not the 2TB HDD.
 

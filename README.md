@@ -24,7 +24,9 @@ most of the design decisions recorded here.
 ## Current state
 
 - **Running:** a Palworld dedicated server on a hand-built Proxmox VM, reached
-  by friends over WireGuard. See [apps/palworld](apps/palworld).
+  by friends over WireGuard. The VM is shut down, with a full backup on
+  `hdd-2tb`, until the server moves onto the cluster. See
+  [apps/palworld](apps/palworld).
 - **In progress:** phase 1, the k3s cluster. See the
   [plan](docs/plans/phase-1-cluster.md) and
   [checklist](docs/plans/phase-1-checklist.md).
@@ -81,8 +83,13 @@ will fill the same role for in-cluster workloads.
 Nothing is exposed on the public IP except the router's WireGuard listener.
 Administrative access and friends' game traffic both arrive over WireGuard
 terminated on the router (a GL.iNet Flint 3). Friends' peers are restricted by
-the router firewall to the DNS server and the game server, so they can't reach
+the router firewall to the DNS server and the game servers, so they can't reach
 the rest of the LAN.
+
+On the cluster, every game server gets a fixed address from a dedicated
+`192.168.8.48/29` block. Friends' `AllowedIPs` and the firewall rule name that
+block rather than individual servers, so adding a game needs no change on
+either side.
 
 Internal name resolution uses `.internal` via AdGuard Home on the router (not
 `.local`, which macOS reserves for mDNS and refuses to resolve over unicast
@@ -92,6 +99,7 @@ DNS).
 | --- | --- |
 | Router, AdGuard DNS (`router.internal`) | `192.168.8.1` |
 | Proxmox host (`homelab.internal`) | `192.168.8.150` |
-| Palworld VM (`palworld.internal`) | `192.168.8.119` |
+| Palworld VM (`palworld.internal`, shut down) | `192.168.8.119` |
 | k3s nodes (planned) | `192.168.8.11` - `192.168.8.13` |
-| MetalLB pool (planned) | `192.168.8.50` - `192.168.8.59` |
+| MetalLB `games` pool (planned) | `192.168.8.48/29` (`.48` - `.55`): Palworld `.48`, Minecraft `.49` |
+| MetalLB `general` pool (planned) | `192.168.8.56/29` (`.56` - `.63`): Traefik, web UIs |
