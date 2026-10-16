@@ -35,7 +35,7 @@ locals {
       vmid      = 312
       ip        = "192.168.8.13"
       role      = "agent"
-      cores     = 4
+      cores     = 6
       memory    = 8192
       boot_disk = 30
       data_disk = 50
