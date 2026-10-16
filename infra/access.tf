@@ -9,5 +9,6 @@ locals {
   # list before working from it.
   ssh_public_keys = [
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICnpOHYq33NoIVrXtSqS5wXWmVuRFsZjFxNp1guHc2Fm wsl-desktop",
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOEWAC14hfDesqPfXEbAeWnlQswxy7Vz/D5eCORuBQZe m2-macbook"
   ]
 }
