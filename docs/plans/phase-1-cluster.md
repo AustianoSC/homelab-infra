@@ -227,74 +227,52 @@ reports `Enabled`.
 
 ## Step 6: Create the VMs with OpenTofu
 
-Files in `tofu/modules/proxmox-vm/` and `tofu/homelab/`:
+The code lives in `infra/` (S3 bucket `lab-terratofu-state`, key
+`infra/terraform.tfstate`, authenticated through the `austin-sandbox` AWS SSO
+profile rather than a long-lived IAM key). It is written and validates; the
+`plan` and `apply` below are the remaining steps.
 
-- `backend.tf`:
+| File | What it does |
+| --- | --- |
+| `backend.tf`, `encryption.tf` | S3 backend with native locking; client-side `aes_gcm` encryption, `enforced` for state and plans |
+| `providers.tf` | `bpg/proxmox` `~> 0.116` against `https://homelab.internal:8006/` (self-signed cert, so `insecure`); API token from `PROXMOX_VE_API_TOKEN`, SSH as root through the agent |
+| `image.tf` | Ubuntu 24.04 cloud image pinned to the 20260926 release and its SHA256, imported into `local` |
+| `nodes.tf` | The `local.nodes` map (single source of truth) and one `module.node` per entry |
+| `access.tf` | Admin user and the SSH public keys cloud-init authorizes |
+| `modules/proxmox-vm/` | One VM: `host` CPU, ballooning off, qcow2 boot disk on `nvme-ssd-1tb`, optional data disk on `sata-ssd-1tb` mounted at `/var/lib/rancher/k3s/storage`, static IP via cloud-init, guest agent, `on_boot` |
+| `inventory.tf` | Renders `ansible/inventory/hosts.yml` from `local.nodes`; the file is committed |
+| `.terraform.lock.hcl` | Committed, with checksums for `linux_amd64` and `darwin_arm64` |
 
-  ```hcl
-  terraform {
-    backend "s3" {
-      bucket       = "austianosc-homelab-tofu-state"
-      key          = "homelab/terraform.tfstate"
-      region       = "us-west-2"
-      use_lockfile = true
-    }
-  }
-  ```
+Before the first plan:
 
-  Credentials come from `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` in
-  `.env.tpl`.
-- `providers.tf`:
-  - `bpg/proxmox`, pinned to a version.
-  - Endpoint `https://homelab.internal:8006/`.
-  - Token read from the `PROXMOX_VE_API_TOKEN` environment variable.
-  - `insecure = true` while the host uses a self-signed certificate.
-- `encryption.tf`: `pbkdf2` key provider plus `aes_gcm`, with
-  `enforced = true` for both state and plan files.
-- `image.tf`: download the Ubuntu 24.04 cloud image
-  (`noble-server-cloudimg-amd64.img`) into `local` as `import` content.
-- `nodes.tf`: the single source of truth for the nodes.
-
-  ```hcl
-  locals {
-    nodes = {
-      k3s-cp-1     = { vmid = 301, ip = "192.168.8.11", cores = 2, memory = 3072, role = "server", data_disk = 0 }
-      k3s-worker-1 = { vmid = 311, ip = "192.168.8.12", cores = 8, memory = 16384, role = "agent", data_disk = 100 }
-      k3s-worker-2 = { vmid = 312, ip = "192.168.8.13", cores = 4, memory = 8192,  role = "agent", data_disk = 50 }
-    }
-  }
-  ```
-
-- Module settings for each VM:
-  - CPU type `host`.
-  - Memory with `floating = 0`, so ballooning is off.
-  - Boot disk on `nvme-ssd-1tb` (qcow2), with `discard`, `ssd` and
-    `iothread` enabled.
-  - For workers, a second disk on `sata-ssd-1tb`.
-  - Cloud-init snippet stored on `nvme-ssd-1tb`.
-  - Static IP and DNS server `192.168.8.1` through cloud-init.
-  - A user-data snippet that creates the user with the SSH key, installs
-    `qemu-guest-agent`, and mounts the data disk at
-    `/var/lib/rancher/k3s/storage` (local-path's default directory).
-  - Guest agent on, and `on_boot = true`.
-- `inventory.tf`: render `ansible/inventory/hosts.yml` from `local.nodes`
-  with `templatefile`.
+1. Finish step 3, and save the API token as the full string
+   `tofu@pve!provider=<secret>` at `op://homelab/proxmox-tofu/token` (the path
+   in `infra/.env.tpl`).
+2. Load the SSH key into the agent (`ssh-add ~/.ssh/id_ed25519`) and confirm
+   `ssh root@homelab.internal` works.
+3. To work from the MacBook, add its public key to `local.ssh_public_keys` in
+   `infra/access.tf` and apply, so both machines render identical cloud-init.
 
 Run:
 
 ```bash
-cd tofu/homelab
+cd infra
+aws sso login --profile austin-sandbox
 op run --env-file=.env.tpl -- tofu init
-tofu providers lock -platform=linux_amd64 -platform=darwin_arm64   # lock file works on WSL and the Mac
-op run --env-file=.env.tpl -- tofu plan
+op run --env-file=.env.tpl -- tofu plan    # expect 3 VMs, 3 snippets, 1 image, 1 inventory file
 op run --env-file=.env.tpl -- tofu apply
 ```
+
+The first apply also destroys the `terraform_data.state_smoke_test` left over
+from the backend test; that's expected.
 
 Check:
 
 - `ssh austin@<node-ip>` works on all three nodes.
 - The Proxmox UI shows each VM's IP from the guest agent.
-- `aws s3 cp s3://austianosc-homelab-tofu-state/homelab/terraform.tfstate - | head -c 200`
+- `ssh austin@192.168.8.12 'findmnt /var/lib/rancher/k3s/storage'` shows the
+  data disk on both workers.
+- `aws s3 cp s3://lab-terratofu-state/infra/terraform.tfstate - | head -c 200`
   shows an encrypted payload, not readable resource data.
 - No `terraform.tfstate` file exists locally.
 - `tofu plan` from the other machine (WSL or the Mac) reports no changes.
