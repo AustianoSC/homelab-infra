@@ -1,0 +1,35 @@
+#cloud-config
+hostname: ${hostname}
+manage_etc_hosts: true
+
+users:
+  - name: ${username}
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: true
+    ssh_authorized_keys:
+%{ for key in ssh_public_keys ~}
+      - ${key}
+%{ endfor ~}
+
+ssh_pwauth: false
+package_update: true
+packages:
+  - qemu-guest-agent
+
+%{ if has_data_disk ~}
+# Format the data disk on first boot only (cloud-init skips disks that already
+# have a filesystem) and mount it where k3s keeps local-path volumes.
+fs_setup:
+  - label: k3s-data
+    filesystem: ext4
+    device: /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1
+    partition: none
+
+mounts:
+  - [LABEL=k3s-data, ${data_mount}, ext4, "defaults,discard,nofail", "0", "2"]
+
+%{ endif ~}
+runcmd:
+  - systemctl enable --now qemu-guest-agent
