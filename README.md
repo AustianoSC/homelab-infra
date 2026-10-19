@@ -50,6 +50,8 @@ durable piece is the compose file, which translates directly into a StatefulSet.
 ## Repository layout
 
 ```
+infra/       OpenTofu: Proxmox VMs for the k3s nodes, Ansible inventory
+ansible/     Ansible: node baseline and k3s install
 apps/        Workloads that run outside the cluster today (Docker Compose)
 docs/plans/  Phase plans and checklists
 ```
@@ -57,8 +59,6 @@ docs/plans/  Phase plans and checklists
 Planned as phase 1 lands:
 
 ```
-tofu/        OpenTofu: S3 state bucket bootstrap, Proxmox VMs for the k3s nodes
-ansible/     Ansible: node baseline and k3s install
 kubernetes/  Manifests and Helm values, later managed by Argo CD
 docs/adr/    Architecture decision records
 ```
