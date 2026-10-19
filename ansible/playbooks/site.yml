@@ -1,0 +1,68 @@
+---
+# Configures every node and installs k3s. Safe to re-run: a second run against
+# a healthy cluster reports no changes.
+#
+#   op run --env-file=.env.tpl -- ansible-playbook playbooks/site.yml
+
+- name: Preflight
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Check the k3s join token was injected
+      ansible.builtin.assert:
+        that: k3s_token | length >= 32
+        fail_msg: >-
+          K3S_TOKEN is missing or too short. Run the playbook through
+          `op run --env-file=.env.tpl -- ansible-playbook ...`.
+        quiet: true
+
+- name: Node baseline
+  hosts: k3s
+  become: true
+  roles:
+    - base
+
+- name: K3s server
+  hosts: k3s_server
+  become: true
+  roles:
+    - k3s_server
+
+- name: K3s agents
+  hosts: k3s_agent
+  become: true
+  roles:
+    - k3s_agent
+
+- name: Local kubeconfig
+  hosts: k3s_server[0]
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Read the cluster kubeconfig
+      ansible.builtin.slurp:
+        src: /etc/rancher/k3s/k3s.yaml
+      register: k3s_kubeconfig
+
+    - name: Create the local ~/.kube directory
+      ansible.builtin.file:
+        path: "{{ kubeconfig_local_path | dirname }}"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      become: false
+
+    # k3s writes the kubeconfig for use on the server itself: it points at
+    # 127.0.0.1 and names everything "default". Point it at the control plane
+    # and rename the cluster, user and context so it can sit alongside others.
+    - name: Write the kubeconfig to {{ kubeconfig_local_path }}
+      ansible.builtin.copy:
+        dest: "{{ kubeconfig_local_path }}"
+        mode: "0600"
+        content: >-
+          {{ k3s_kubeconfig.content | b64decode
+             | replace('https://127.0.0.1:6443', k3s_server_url)
+             | regex_replace('(?m)^(\s*(?:- )?(?:name|cluster|user|current-context): )default$',
+                             '\g<1>' ~ kubeconfig_context) }}
+      delegate_to: localhost
+      become: false

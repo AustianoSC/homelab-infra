@@ -1,0 +1,59 @@
+---
+- name: Create the k3s config directory
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    mode: "0755"
+
+# Written before the install so k3s starts with this config the first time.
+- name: Write the k3s server config
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml
+    mode: "0600"
+  notify: Restart k3s
+
+- name: Create the install script directory
+  ansible.builtin.file:
+    path: /usr/local/share/k3s
+    state: directory
+    mode: "0755"
+
+# Versioned file name: get_url never re-downloads an existing file, so a fixed
+# name would keep using the old script after k3s_version changes.
+- name: Download the install script for the pinned release
+  ansible.builtin.get_url:
+    url: "https://raw.githubusercontent.com/k3s-io/k3s/{{ k3s_version | urlencode }}/install.sh"
+    dest: "/usr/local/share/k3s/install-{{ k3s_version }}.sh"
+    mode: "0755"
+
+- name: Read the installed k3s version
+  ansible.builtin.command: /usr/local/bin/k3s --version
+  register: k3s_server_installed
+  changed_when: false
+  failed_when: false
+
+# Runs on first install and whenever k3s_version changes, which is how the
+# cluster is upgraded. Otherwise it's skipped, keeping re-runs change-free.
+- name: Install k3s server {{ k3s_version }}
+  ansible.builtin.command: "/usr/local/share/k3s/install-{{ k3s_version }}.sh"
+  environment:
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
+    INSTALL_K3S_EXEC: server
+  when: k3s_version not in (k3s_server_installed.stdout | default(''))
+  changed_when: true
+
+- name: Enable and start k3s
+  ansible.builtin.systemd_service:
+    name: k3s
+    enabled: true
+    state: started
+
+- name: Apply config changes before checking the node
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for the control plane node to be Ready
+  ansible.builtin.command: >-
+    /usr/local/bin/k3s kubectl wait --for=condition=Ready
+    node/{{ inventory_hostname }} --timeout=180s
+  changed_when: false

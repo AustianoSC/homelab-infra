@@ -1,0 +1,5 @@
+---
+# Reboot when a package upgrade asks for it. Safe while the cluster is empty;
+# once game servers run here, pass -e base_reboot_if_required=false and reboot
+# nodes one at a time after draining them.
+base_reboot_if_required: true

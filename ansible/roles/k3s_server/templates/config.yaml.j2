@@ -1,0 +1,22 @@
+# {{ ansible_managed }}
+token: "{{ k3s_token }}"
+node-ip: "{{ ansible_host }}"
+
+# Embedded etcd rather than SQLite: more servers can join later, and k3s takes
+# etcd snapshots automatically.
+cluster-init: true
+
+# Names the API server certificate is valid for, so kubeconfigs can use either.
+tls-san:
+  - "{{ ansible_host }}"
+  - "{{ inventory_hostname }}.internal"
+
+# Keep workloads off the control plane.
+node-taint:
+  - "node-role.kubernetes.io/control-plane:NoSchedule"
+
+# MetalLB provides LoadBalancer Services instead.
+disable:
+  - servicelb
+
+write-kubeconfig-mode: "0600"
