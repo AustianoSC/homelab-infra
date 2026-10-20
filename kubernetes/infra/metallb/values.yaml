@@ -1,0 +1,12 @@
+# Helm values for the MetalLB chart (version pinned in the README next to this
+# file). This is the whole configuration, so Argo CD can take over the release
+# later without changing how it's set up.
+#
+# The speaker runs on every node, including the tainted control plane. That is
+# harmless: in L2 mode only one node answers ARP for a given address, chosen
+# among nodes that can actually serve the Service.
+
+# The chart enables the frr-k8s BGP backend by default (a pod with five
+# containers on every node). L2 mode doesn't use it, so turn it off.
+frrk8s:
+  enabled: false
