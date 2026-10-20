@@ -80,9 +80,9 @@ firewall rule and one `AllowedIPs` entry no matter how many games run.
 | 192.168.8.49 | Minecraft (TCP 25565) |
 | 192.168.8.50 - .55 | Free for future games |
 
-- The `games` pool sets `autoAssign: false`, so Traefik and other Services
-  can't take a game IP. Each game Service pins its address with the
-  `metallb.io/loadBalancerIPs` annotation.
+- The `games` pool sets `autoAssign: false`, so Services that don't ask for it
+  (Traefik, test Services) never get a game IP. Each game Service pins its
+  address with the `metallb.io/loadBalancerIPs` annotation.
 - Friends' `AllowedIPs`: `192.168.8.1/32, 192.168.8.48/29`. The router
   firewall allows the same block, limited to the game ports.
 - This is a block of addresses in the existing /24, not a VLAN. A VLAN for the
@@ -326,17 +326,29 @@ Check:
 
 ## Step 8: MetalLB and storage test
 
-1. Install MetalLB with Helm:
+Done. The manifests are in `kubernetes/infra/metallb/` (chart `0.16.1`, with
+its own README), and all of the tests below passed.
+
+1. Install MetalLB with Helm, pinned and with values from the repo. `values.yaml`
+   turns off the chart's `frrk8s` BGP backend, which is on by default and costs
+   about 190MB and constant CPU for a mode L2 doesn't use:
 
    ```bash
    helm repo add metallb https://metallb.github.io/metallb
-   helm install metallb metallb/metallb -n metallb-system --create-namespace
+   helm upgrade --install metallb metallb/metallb --version 0.16.1 \
+     -n metallb-system --create-namespace \
+     -f kubernetes/infra/metallb/values.yaml --wait
    ```
 
 2. Apply two `IPAddressPool`s and an `L2Advertisement` covering both, from
    `kubernetes/infra/metallb/`, so Argo CD can take them over later:
    - `games`: `192.168.8.48/29`, `autoAssign: false`.
    - `general`: `192.168.8.56/29`.
+
+   `autoAssign: false` only stops *automatic* assignment: an unannotated
+   Service never lands in `games`, but one that names the pool or an address in
+   it can still take it. Nothing in the cluster enforces more than convention
+   here, so game Services should always pin their address.
 3. Load balancer tests:
    - Deploy nginx with a plain `LoadBalancer` Service. It should get an IP
      from `general`, and `curl` should work from your PC. Traefik also takes a
@@ -350,14 +362,147 @@ Check:
 
 ## Step 9: Rebuild from scratch
 
+Destroy the whole cluster and rebuild it from the repo alone. Phase 1 is done
+when this produces a working cluster with no manual fixes. These steps assume
+the MacBook; on WSL they're the same minus the Mac-specific setup.
+
+What gets destroyed: the three k3s VMs, their disks (including the data disks),
+the cloud-init snippets, the Ubuntu image and the generated inventory file.
+Nothing on the cluster needs keeping yet. VM 200 isn't in OpenTofu's state, so
+it's untouched.
+
+### 1. Check the Mac is ready
+
 ```bash
+cd ~/path/to/homelab-infra && git pull
+
+# Tools (once): Homebrew's ansible includes ansible.posix and community.general
+brew install opentofu ansible kubectl helm 1password-cli awscli
+
+# On the home network or WireGuard: names must resolve and SSH must work
+dig +short k3s-cp-1.internal          # 192.168.8.11
+ssh root@homelab.internal true        # the provider uploads snippets as root
+ssh-add --apple-use-keychain ~/.ssh/id_ed25519
+ssh-add -l                            # the key must be loaded in the agent
+
+# 1Password CLI signed in (desktop app integration)
+op whoami
+
+# AWS SSO for the state bucket. ~/.aws/config must define the austin-sandbox
+# profile; copy it from WSL (~/.aws/config.tpl, rendered with op inject).
+export AWS_PROFILE=austin-sandbox
+aws sso login
+```
+
+The root SSH check matters: the Mac's key must be in root's
+`~/.ssh/authorized_keys` on the Proxmox host, not just in
+`infra/access.tf` (that one only covers the nodes). `tofu plan` works without
+it because plans only use the API, but `apply` and `destroy` upload and remove
+the cloud-init snippets over SSH. As of 2026-10-19 the Mac's key is not there;
+add it once from WSL (`/root/.ssh/authorized_keys` is a symlink to Proxmox's
+`/etc/pve/priv/authorized_keys`, so appending through it is correct):
+
+```bash
+ssh root@homelab.internal \
+  'echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOEWAC14hfDesqPfXEbAeWnlQswxy7Vz/D5eCORuBQZe m2-macbook" >> /root/.ssh/authorized_keys'
+```
+
+### 2. Confirm OpenTofu sees the current cluster
+
+```bash
+cd infra
+op run --env-file=.env.tpl -- tofu init
+op run --env-file=.env.tpl -- tofu plan     # expect: No changes
+```
+
+If this plan isn't clean, stop and find out why before destroying anything.
+
+### 3. Destroy
+
+```bash
+date                                         # start time, for the README
 op run --env-file=.env.tpl -- tofu destroy
+```
+
+Expect 8 resources destroyed: 3 VMs, 3 snippets, the image and the inventory
+file. `ssh root@homelab.internal qm list` should then show only VM 200.
+`git status` shows `ansible/inventory/hosts.yml` deleted until the next apply
+regenerates it.
+
+### 4. Recreate the VMs
+
+```bash
 op run --env-file=.env.tpl -- tofu apply
+```
+
+This downloads the image again and waits for each guest agent, so a few
+minutes is normal. Afterwards `git status` should be clean again: the
+regenerated inventory is identical to the committed one.
+
+### 5. Forget the old host keys
+
+The new VMs have new SSH host keys, and Ansible refuses keys that change:
+
+```bash
+for h in 192.168.8.11 192.168.8.12 192.168.8.13 \
+         k3s-cp-1.internal k3s-worker-1.internal k3s-worker-2.internal; do
+  ssh-keygen -R "$h"
+done
+```
+
+### 6. Install k3s
+
+```bash
+cd ../ansible
 op run --env-file=.env.tpl -- ansible-playbook playbooks/site.yml
 ```
 
-Then reapply MetalLB. Phase 1 is done when this produces a working cluster with
-no manual steps. Note how long the rebuild takes for the README.
+The first run may reboot nodes after the upgrade. It ends by writing a fresh
+`~/.kube/homelab.yaml` on the Mac.
+
+### 7. Reinstall MetalLB
+
+```bash
+cd ..
+export KUBECONFIG=~/.kube/homelab.yaml
+helm repo add metallb https://metallb.github.io/metallb
+helm upgrade --install metallb metallb/metallb --version 0.16.1 \
+  -n metallb-system --create-namespace \
+  -f kubernetes/infra/metallb/values.yaml --wait
+kubectl apply -f kubernetes/infra/metallb/pools.yaml
+date                                         # end time
+```
+
+### 8. Verify
+
+| Check | Command | Expected |
+| --- | --- | --- |
+| Nodes | `kubectl get nodes` | All three `Ready`, `v1.36.5+k3s1` |
+| System pods | `kubectl get pods -A` | All `Running` or `Completed` |
+| MetalLB | `kubectl get svc -n kube-system traefik` | `EXTERNAL-IP 192.168.8.56` |
+| Load balancing | `curl -s -o /dev/null -w '%{http_code}\n' http://192.168.8.56/` | `404` (Traefik answering, no routes yet) |
+| Data disks | `ssh austin@192.168.8.12 findmnt /var/lib/rancher/k3s/storage` | Mounted from `/dev/sdb` (same on `.13`) |
+| Ansible is idempotent | Run the step 6 command again | `changed=0` on every host |
+| OpenTofu is idempotent | `cd infra && op run --env-file=.env.tpl -- tofu plan` | `No changes` |
+
+### 9. Bring WSL up to date
+
+The WSL desktop still has the old cluster's host keys and kubeconfig. From WSL:
+
+```bash
+for h in 192.168.8.11 192.168.8.12 192.168.8.13 \
+         k3s-cp-1.internal k3s-worker-1.internal k3s-worker-2.internal; do
+  ssh-keygen -R "$h"
+done
+cd ~/projects/homelab-infra/ansible
+op run --env-file=.env.tpl -- ansible-playbook playbooks/site.yml   # changed=0, refreshes the kubeconfig
+```
+
+### Record the result
+
+Note the start and end times for the README's "rebuild from zero" section. The
+host key cleanup (step 5) and the MetalLB install (step 7) are the two manual
+pieces left; a Makefile target and Argo CD (step 10 and after) remove them.
 
 ## Step 10: Docs and CI
 
