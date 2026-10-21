@@ -49,9 +49,15 @@
   ansible.builtin.meta: flush_handlers
 
 # Agents have no kubeconfig, so ask the server whether this node joined.
+# Retries NotFound for the same reason as the server role: the node object
+# doesn't exist until the agent has registered.
 - name: Wait for the node to be Ready
   ansible.builtin.command: >-
     /usr/local/bin/k3s kubectl wait --for=condition=Ready
     node/{{ inventory_hostname }} --timeout=180s
   delegate_to: "{{ groups['k3s_server'][0] }}"
+  register: k3s_agent_ready
+  until: k3s_agent_ready.rc == 0 or 'NotFound' not in k3s_agent_ready.stderr
+  retries: 30
+  delay: 5
   changed_when: false

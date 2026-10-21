@@ -4,6 +4,8 @@
     update_cache: true
     cache_valid_time: 3600
     upgrade: dist
+    # A new VM's first-boot upgrade service may hold the dpkg lock for a while.
+    lock_timeout: 300
 
 - name: Install base packages
   ansible.builtin.apt:
@@ -11,6 +13,7 @@
       - curl
       - unattended-upgrades
     state: present
+    lock_timeout: 300
 
 - name: Set the timezone
   community.general.timezone:

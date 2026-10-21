@@ -52,8 +52,15 @@
 - name: Apply config changes before checking the node
   ansible.builtin.meta: flush_handlers
 
+# `kubectl wait --timeout` only waits for a condition on an object that exists.
+# Right after k3s (re)starts the node hasn't registered yet and it fails at
+# once with NotFound, so retry that case. Any other failure stops immediately.
 - name: Wait for the control plane node to be Ready
   ansible.builtin.command: >-
     /usr/local/bin/k3s kubectl wait --for=condition=Ready
     node/{{ inventory_hostname }} --timeout=180s
+  register: k3s_server_ready
+  until: k3s_server_ready.rc == 0 or 'NotFound' not in k3s_server_ready.stderr
+  retries: 30
+  delay: 5
   changed_when: false

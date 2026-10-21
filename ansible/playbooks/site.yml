@@ -16,6 +16,22 @@
           `op run --env-file=.env.tpl -- ansible-playbook ...`.
         quiet: true
 
+# Freshly created VMs answer on the network before first boot has finished
+- name: Wait for the nodes
+  hosts: k3s
+  gather_facts: false
+  tasks:
+    - name: Wait for SSH to accept connections
+      ansible.builtin.wait_for_connection:
+        timeout: 300
+
+    - name: Wait for first-boot cloud-init to finish
+      ansible.builtin.command: cloud-init status --wait
+      register: nodes_cloud_init
+      # Exit code 2 means "finished with recoverable warnings", which is fine.
+      failed_when: nodes_cloud_init.rc not in [0, 2]
+      changed_when: false
+
 - name: Node baseline
   hosts: k3s
   become: true
