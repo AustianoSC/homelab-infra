@@ -1,0 +1,83 @@
+name: lint
+
+# Lint only. This workflow has no credentials, never runs `apply`, and can't
+# reach the homelab: CI is for catching mistakes, and deployment is pulled by
+# the cluster (see docs/adr/0007-pull-based-gitops.md). It uses `pull_request`,
+# not `pull_request_target`, so code from forks never runs with secrets.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+# Actions are pinned to commit SHAs (the comment is the release they point at)
+# so a moved tag can't change what runs here.
+jobs:
+  tofu:
+    name: OpenTofu fmt, validate, tflint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version: 1.13.1
+          tofu_wrapper: false
+
+      - name: Check formatting
+        run: tofu fmt -check -recursive -diff infra
+
+      # -backend=false: no AWS access needed. The dummy passphrase only
+      # satisfies the encryption block's required variable (16+ characters).
+      - name: Validate
+        working-directory: infra
+        env:
+          TF_VAR_state_passphrase: ci-validate-only-0000
+        run: |
+          tofu init -backend=false -input=false
+          tofu validate
+
+      - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+
+      - name: tflint
+        run: |
+          tflint --init
+          tflint --recursive --config "$GITHUB_WORKSPACE/.tflint.hcl" --chdir infra
+
+  ansible:
+    name: ansible-lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install ansible-lint and collections
+        run: |
+          pip install ansible-lint==26.10.0
+          ansible-galaxy collection install -r ansible/requirements.yml
+
+      - name: Lint
+        working-directory: ansible
+        run: ansible-lint
+
+  secrets:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      # Full history: a secret removed in a later commit is still in git.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
