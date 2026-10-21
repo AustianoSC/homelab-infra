@@ -500,9 +500,11 @@ op run --env-file=.env.tpl -- ansible-playbook playbooks/site.yml   # changed=0,
 
 ### Record the result
 
-Note the start and end times for the README's "rebuild from zero" section. The
-host key cleanup (step 5) and the MetalLB install (step 7) are the two manual
-pieces left; a Makefile target and Argo CD (step 10 and after) remove them.
+Note the start and end times, and add them to the README's "Rebuild from zero"
+section. The host key cleanup (step 5) and the MetalLB install (step 7) were
+the two manual pieces; `make rebuild` now does both (Argo CD will replace the
+MetalLB one later). Running `make rebuild` instead of the manual steps is a
+good second test of the Makefile itself.
 
 ## Step 10: Docs and CI
 

@@ -10,7 +10,7 @@
 - [x] **7. Ansible:** `base`, `k3s_server`, `k3s_agent` roles and the kubeconfig fetch; `ansible-playbook site.yml` run, all nodes `Ready`
 - [x] **8. Add-ons:** MetalLB `0.16.1` from `kubernetes/infra/metallb/` (BGP backend off), `games` and `general` pools, load balancer and IP-pinning tests, PVC test on a worker
 - [ ] **9. Rebuild test:** `tofu destroy`, `tofu apply`, `ansible-playbook`, reinstall MetalLB, with no manual steps
-- [ ] **10. Docs and CI:** Makefile, lint workflow, ADRs, README updates
+- [x] **10. Docs and CI:** `Makefile` (`make help`), `lint.yml` (OpenTofu, tflint, ansible-lint, gitleaks; lint only), seven ADRs in `docs/adr`, README with architecture diagrams and run/destroy/rebuild instructions. The workflow's first real run happens on GitHub when this is pushed
 
 ## After phase 1
 
