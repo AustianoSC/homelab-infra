@@ -30,3 +30,4 @@ apps/palworld/palworld/
 # OS / editor noise
 .DS_Store
 *.swp
+.tofu-lint/
