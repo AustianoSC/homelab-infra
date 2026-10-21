@@ -34,10 +34,12 @@
   roles:
     - k3s_agent
 
+# Tagged so `make kubeconfig` can refresh just this file on a new machine.
 - name: Local kubeconfig
   hosts: k3s_server[0]
   become: true
   gather_facts: false
+  tags: [kubeconfig]
   tasks:
     - name: Read the cluster kubeconfig
       ansible.builtin.slurp:
