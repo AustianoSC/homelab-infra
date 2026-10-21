@@ -7,6 +7,8 @@ Chart version: **0.16.1** (MetalLB v0.16.1).
 
 ## Install or upgrade
 
+`make metallb` from the repo root, or by hand:
+
 ```bash
 export KUBECONFIG=~/.kube/homelab.yaml
 helm repo add metallb https://metallb.github.io/metallb
