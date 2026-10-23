@@ -82,7 +82,7 @@ and nothing was deployed by hand except Argo CD itself.
   | One owner | `helm list -A` | No `metallb` release (Traefik's are k3s's own) |
   | Self-heal | `kubectl -n metallb-system scale deploy metallb-controller --replicas=0` | Back to 1 replica within a minute or so, put there by Argo CD |
 
-- [ ] **6. Log in.** The initial password is generated, so read it, change it in
+- [x] **6. Log in.** The initial password is generated, so read it, change it in
   the UI, then delete the Secret:
   ```bash
   kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo
@@ -101,7 +101,7 @@ Before starting: VM 200 is shut down, the save from it is at
 `~/backups/palworld-2026-10-14` on the WSL desktop (taken with the server
 stopped, and the VM hasn't run since), and part 1 is done.
 
-- [ ] **7. Restore the save into the volume.** The Application is deployed with
+- [x] **7. Restore the save into the volume.** The Application is deployed with
   zero replicas, because a server started on an empty volume installs itself and
   creates a new world. Load the old one first, through a throwaway pod pinned to
   the same node:
@@ -140,7 +140,7 @@ stopped, and the VM hasn't run since), and part 1 is done.
   purpose: while it exists it overrides all the environment variables. Check
   that the listing shows `SaveGames/0/<world>/Level.sav` and `Players/`.
 
-- [ ] **8. Start the server.** Set `replicas: 1` in
+- [x] **8. Start the server.** Set `replicas: 1` in
   `kubernetes/apps/palworld/statefulset.yaml`, commit and push to `main`. Then:
   ```bash
   kubectl -n palworld logs -f palworld-0
@@ -153,7 +153,7 @@ stopped, and the VM hasn't run since), and part 1 is done.
   | Address | `kubectl -n palworld get svc palworld` | `EXTERNAL-IP 192.168.8.48` |
   | Memory | `kubectl top pod -n palworld` | Well under the 14Gi limit |
 
-- [ ] **9. Open the network path** (on the router; this repo doesn't manage it):
+- [x] **9. Open the network path** (on the router; this repo doesn't manage it):
   - AdGuard: point `palworld.internal` at `192.168.8.48` instead of `.119`.
   - Firewall: allow the WireGuard peers to `192.168.8.48/29`, on the same ports
   as the existing rule for `.119` (UDP 8211 is the one that matters).
