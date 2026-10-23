@@ -1,0 +1,24 @@
+# Helm values for the Argo CD chart (version pinned in the Makefile). Argo CD is
+# the one thing installed by hand, with `make argocd`; it then deploys everything
+# else in this repo.
+
+# Not needed here, and the cluster's memory is tight: no SSO (Dex), no
+# notifications, and no ApplicationSet controller (the apps are listed by hand
+# in kubernetes/argocd/applications).
+dex:
+  enabled: false
+notifications:
+  enabled: false
+# This chart has no `enabled` switch for the controller; zero replicas is the
+# way to turn it off.
+applicationSet:
+  replicas: 0
+
+server:
+  # The UI is reachable on the LAN at https://192.168.8.57 (self-signed
+  # certificate). It's in MetalLB's `general` pool, next to Traefik at .56, so
+  # it is not in the block friends are allowed to reach.
+  service:
+    type: LoadBalancer
+    annotations:
+      metallb.io/loadBalancerIPs: 192.168.8.57

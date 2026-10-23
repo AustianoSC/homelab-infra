@@ -1,6 +1,5 @@
 # Address pools for MetalLB, all inside the LAN's 192.168.8.0/24 and outside the
-# router's DHCP range (.100 - .249). See "Game server addresses" in
-# docs/plans/phase-1-cluster.md.
+# router's DHCP range (.100 - .249). See docs/adr/0005-metallb-over-servicelb.md.
 ---
 # Game servers. Addresses here are only handed out to Services that ask for one
 # by name, so Traefik or a test Service can never take a game IP. Friends'

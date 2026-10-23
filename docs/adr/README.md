@@ -12,4 +12,5 @@ they are never rewritten to hide a change of mind.
 | [0004](0004-encrypted-state-in-s3.md) | OpenTofu state in S3, encrypted client-side | Accepted |
 | [0005](0005-metallb-over-servicelb.md) | MetalLB instead of k3s' servicelb | Accepted |
 | [0006](0006-local-path-over-longhorn.md) | local-path storage instead of Longhorn | Accepted |
-| [0007](0007-pull-based-gitops.md) | Pull-based GitOps with Argo CD | Accepted, not yet built |
+| [0007](0007-pull-based-gitops.md) | Pull-based GitOps with Argo CD | Accepted |
+| [0008](0008-external-secrets-for-1password.md) | External Secrets Operator for 1Password secrets | Proposed |

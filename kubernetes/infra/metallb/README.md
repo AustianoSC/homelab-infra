@@ -5,18 +5,6 @@ disabled). Layer 2 mode, two pools: see `pools.yaml`.
 
 Chart version: **0.16.1** (MetalLB v0.16.1).
 
-## Install or upgrade
-
-`make metallb` from the repo root, or by hand:
-
-```bash
-export KUBECONFIG=~/.kube/homelab.yaml
-helm repo add metallb https://metallb.github.io/metallb
-helm upgrade --install metallb metallb/metallb \
-  --version 0.16.1 -n metallb-system --create-namespace \
-  -f kubernetes/infra/metallb/values.yaml --wait
-kubectl apply -f kubernetes/infra/metallb/pools.yaml
-```
-
-The pools are applied after the chart because they use CRDs the chart installs,
-and the chart's webhook must be ready first (`--wait` covers that).
+Deployed by Argo CD: `kubernetes/argocd/applications/metallb.yaml` installs the
+chart with `values.yaml`, and `metallb-pools.yaml` applies `pools.yaml`. To
+upgrade, change `targetRevision` in the first and merge to `main`.

@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: palworld
+  namespace: palworld
+  annotations:
+    metallb.io/loadBalancerIPs: 192.168.8.48
+spec:
+  type: LoadBalancer
+  # Keeps players' real source addresses (for the player log) and skips an
+  # extra hop. The pod is pinned to one node, so MetalLB announces from there.
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: palworld
+  # The REST API (8212/tcp) is deliberately not exposed: the server's auto-reboot
+  # calls it from inside the container, and upstream warns against publishing it.
+  ports:
+    - name: game
+      protocol: UDP
+      port: 8211
+      targetPort: game
+    - name: query
+      protocol: UDP
+      port: 27015
+      targetPort: query

@@ -19,7 +19,7 @@ flowchart TB
 
     subgraph pve["Proxmox host 192.168.8.150: i9-12900K, 32GB"]
       cp["k3s-cp-1 192.168.8.11<br/>control plane, 3GB"]
-      w1["k3s-worker-1 192.168.8.12<br/>16GB, 100GB data disk"]
+      w1["k3s-worker-1 192.168.8.12<br/>16GB, 100GB data disk<br/>Palworld, at 192.168.8.48"]
       w2["k3s-worker-2 192.168.8.13<br/>8GB, 50GB data disk"]
     end
 
@@ -39,12 +39,14 @@ flowchart LR
   subgraph client["WSL desktop or MacBook"]
     tofu["OpenTofu<br/>make apply"]
     ans["Ansible<br/>make cluster"]
-    helm["Helm<br/>make metallb"]
+    helm["Helm<br/>make argocd"]
   end
 
   s3[("S3 bucket<br/>encrypted state")]
   vms["Proxmox<br/>3 VMs"]
   nodes["k3s cluster"]
+  argo["Argo CD<br/>in the cluster"]
+  gh["GitHub<br/>this repo"]
 
   op -.-> tofu
   op -.-> ans
@@ -52,7 +54,9 @@ flowchart LR
   tofu -->|"Proxmox API and SSH"| vms
   tofu -->|"writes the inventory"| ans
   ans -->|"SSH"| nodes
-  helm --> nodes
+  helm -->|"installs once"| argo
+  argo -->|"pulls manifests"| gh
+  argo -->|"deploys MetalLB, Palworld"| nodes
 ```
 
 Design choices and their trade-offs are recorded in [docs/adr](docs/adr).
@@ -64,22 +68,47 @@ Design choices and their trade-offs are recorded in [docs/adr](docs/adr).
 - [x] k3s cluster provisioned by OpenTofu, configured by Ansible
 - [x] MetalLB giving Services fixed LAN addresses
 - [x] Lint CI (OpenTofu, Ansible, secret scanning)
-- [ ] GitOps with Argo CD
-- [ ] Minecraft server on the cluster
-- [ ] Migrate Palworld from the VM onto the cluster
+- [ ] GitOps with Argo CD: written, not yet deployed
+- [ ] Migrate Palworld from the VM onto the cluster: manifests written, cutover not done
+- [ ] Secrets from 1Password via External Secrets (planned, [phase 3](docs/plans/phase-3-external-secrets.md))
 - [ ] Router WireGuard peers and firewall rules managed by Ansible
 - [ ] Observability (VictoriaMetrics + Grafana)
 
 The old Palworld VM is shut down, with a backup on the HDD, until the server
-moves onto the cluster. See [apps/palworld](apps/palworld). The plan and
-checklist for the current phase are in [docs/plans](docs/plans).
+moves onto the cluster. See [apps/palworld](apps/palworld). The current work is
+the [phase 2 plan](docs/plans/phase-2-gitops-palworld.md), a runbook with a
+checklist.
+
+## Set up a clone
+
+Do this first, on every machine you work from. Git doesn't clone hooks, so each
+clone needs it once:
+
+```bash
+git clone https://github.com/AustianoSC/homelab-infra.git
+cd homelab-infra
+pipx install pre-commit      # or: brew install pre-commit
+make hooks
+```
+
+From then on, every `git commit` first runs:
+
+- **gitleaks**, which blocks a commit that contains a secret;
+- whitespace, final-newline, YAML-syntax, merge-conflict and large-file checks;
+- **`tofu fmt`** on `.tf` files.
+
+Hooks that fix files (whitespace, newlines, `tofu fmt`) fail the commit once:
+review the change, `git add` it, and commit again. `git commit --no-verify`
+skips the hooks, so CI runs the same secret scan as a backstop. The config is
+[`.pre-commit-config.yaml`](.pre-commit-config.yaml); the slower checks
+(`tflint`, `ansible-lint`, `tofu validate`) are in `make lint` and CI.
 
 ## Run it
 
 You need an existing Proxmox host, an S3 bucket for state, and a 1Password
 vault with the secrets listed in the `.env.tpl` files. The one-time setup
-(Proxmox API user, bucket, ssh key) is steps 1-6 of the
-[phase 1 plan](docs/plans/phase-1-cluster.md).
+(Proxmox API user, bucket, ssh key, 1Password items) is in
+[docs/bootstrap.md](docs/bootstrap.md).
 
 Tools: [OpenTofu](https://opentofu.org) 1.8+, Ansible, `helm`, `kubectl`, the
 1Password CLI (`op`) and the AWS CLI. `make lint` also needs `ansible-lint` and
@@ -87,7 +116,7 @@ Tools: [OpenTofu](https://opentofu.org) 1.8+, Ansible, `helm`, `kubectl`, the
 macOS; on Linux, the install script in its README). Then, from the repo root:
 
 ```bash
-make up                                  # VMs, then k3s, then MetalLB
+make up                                  # VMs, k3s, then Argo CD, which deploys the rest
 ```
 
 `make` with no arguments lists every target. The individual steps are:
@@ -97,7 +126,8 @@ make up                                  # VMs, then k3s, then MetalLB
 | `make plan` | Preview OpenTofu changes (read-only) |
 | `make apply` | Create or update the three VMs |
 | `make cluster` | Configure the nodes and install k3s (safe to repeat) |
-| `make metallb` | Install MetalLB and its address pools |
+| `make argocd` | Install Argo CD and point it at this repo; it deploys MetalLB, Palworld and the rest |
+| `make palworld-secret` | Create Palworld's passwords Secret from 1Password |
 | `make kubeconfig` | Refresh `~/.kube/homelab.yaml`, e.g. on a new machine |
 | `make lint` | Run the same checks as CI |
 
@@ -109,6 +139,10 @@ kubectl get nodes          # three nodes, Ready
 kubectl get svc -A         # Traefik should hold 192.168.8.56
 k9s
 ```
+
+Everything on the cluster is deployed by Argo CD from this repo: merge to `main`
+and it applies the change within a few minutes. Its UI is at
+`https://192.168.8.57` (self-signed certificate).
 
 Nodes are reachable as `austin@192.168.8.11`, `.12` and `.13` with the SSH
 key registered in `infra/access.tf`.
@@ -130,21 +164,19 @@ make rebuild
 ```
 
 That is `make destroy` followed by `make up`. The VMs come back with new SSH
-host keys, so `make up` clears the old ones from `known_hosts` for you. A
-rebuilt cluster is empty: workloads and their data are not restored.
-
-Step 9 of the [plan](docs/plans/phase-1-cluster.md) walks through it by hand
-with the expected output at each stage.
+host keys, so `make up` clears the old ones from `known_hosts` for you. Argo CD
+redeploys every workload from Git, but their data is not restored: a rebuilt
+Palworld starts with an empty world.
 
 ## Repository layout
 
 ```
 infra/       OpenTofu: Proxmox VMs for the k3s nodes, Ansible inventory
 ansible/     Ansible: node baseline and k3s install
-kubernetes/  Helm values and manifests (MetalLB today, Argo CD next)
+kubernetes/  What Argo CD deploys: argocd/ (itself and the app list),
+             infra/ (MetalLB), apps/ (Palworld)
 apps/        Workloads still outside the cluster (Docker Compose)
-docs/adr/    Architecture decision records
-docs/plans/  Phase plans and checklists
+docs/        adr/ decision records, plans/ runbooks, bootstrap.md one-time setup
 Makefile     Entry points for all of the above
 ```
 
@@ -158,9 +190,10 @@ safe to commit. The real values are injected at run time:
 op run --env-file=.env.tpl -- <command>
 ```
 
-CI has no credentials at all: it only lints, and never runs `apply`. Once the
-cluster has GitOps, External Secrets Operator with the 1Password provider will
-fill the same role for in-cluster workloads.
+CI has no credentials at all: it only lints, and never runs `apply`. Argo CD
+reads this public repo with no credentials, and the one Secret the cluster needs
+(Palworld's passwords) is created from 1Password by `make` and isn't in Git.
+External Secrets Operator could replace that later.
 
 ## Networking
 
@@ -180,8 +213,8 @@ Home, since macOS reserves `.local` for mDNS.
 | Proxmox host (`homelab.internal`) | `192.168.8.150` |
 | Palworld VM (`palworld.internal`, shut down) | `192.168.8.119` |
 | k3s nodes | `192.168.8.11` - `192.168.8.13` |
-| MetalLB `games` pool | `192.168.8.48/29`: Palworld `.48`, Minecraft `.49` (planned) |
-| MetalLB `general` pool | `192.168.8.56/29`: Traefik `.56`, web UIs |
+| MetalLB `games` pool | `192.168.8.48/29`: Palworld `.48`, the rest free for future games |
+| MetalLB `general` pool | `192.168.8.56/29`: Traefik `.56`, Argo CD `.57` |
 | DHCP pool | `192.168.8.100` - `192.168.8.249` |
 
 ## Hardware

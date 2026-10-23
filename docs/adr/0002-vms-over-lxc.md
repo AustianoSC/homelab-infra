@@ -21,4 +21,4 @@ Use full VMs for every k3s node.
 - A VM's disks and memory are plain accounting, with no surprises from
   container-in-container limits.
 - The price is a guest OS per node, a few hundred MB each, which fits the
-  memory budget (see the plan).
+  memory budget (the three nodes use 27GB of the host's 32GB).

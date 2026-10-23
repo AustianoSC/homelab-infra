@@ -5,7 +5,7 @@ locals {
   gateway     = "192.168.8.1"
   dns_servers = ["192.168.8.1"]
 
-  # Where each kind of disk lives (see the storage table in the phase 1 plan).
+  # Where each kind of disk lives (see docs/bootstrap.md).
   boot_datastore    = "nvme-ssd-1tb"
   data_datastore    = "sata-ssd-1tb"
   snippet_datastore = "nvme-ssd-1tb"

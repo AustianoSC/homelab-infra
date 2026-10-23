@@ -11,7 +11,8 @@ would run on one physical host.
 
 One server (`k3s-cp-1`, 3GB, tainted so it only runs control-plane
 components) and two agents: `k3s-worker-1` (16GB, sized for Palworld) and
-`k3s-worker-2` (8GB, for Minecraft and everything else).
+`k3s-worker-2` (8GB, for everything else: Argo CD, MetalLB and whatever comes
+next).
 
 ## Consequences
 

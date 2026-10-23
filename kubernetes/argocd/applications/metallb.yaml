@@ -1,0 +1,53 @@
+# MetalLB itself: the upstream chart, with this repo's values.yaml. The address
+# pools are a separate Application (metallb-pools.yaml) because they need the
+# CRDs this one installs.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metallb
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://metallb.github.io/metallb
+      chart: metallb
+      targetRevision: 0.16.1
+      helm:
+        # Same release name as the original `helm install`, so the rendered
+        # resources are identical to the ones already running.
+        releaseName: metallb
+        valueFiles:
+          - $values/kubernetes/infra/metallb/values.yaml
+    - repoURL: https://github.com/AustianoSC/homelab-infra.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: metallb-system
+  # MetalLB's controller writes its own CA bundle into the bgppeers CRD and the
+  # validating webhook at runtime. Without this, Argo CD would show both as
+  # permanently out of sync and "fix" them on every sync.
+  ignoreDifferences:
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+      jsonPointers:
+        - /spec/conversion/webhook/clientConfig/caBundle
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[]?.clientConfig.caBundle
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # Adopts resources Helm created earlier, and copes with large CRDs.
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

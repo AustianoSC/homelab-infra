@@ -1,0 +1,32 @@
+# MetalLB's address pools. Only pools.yaml is picked up: the rest of the
+# directory (values.yaml, README) isn't a Kubernetes manifest.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metallb-pools
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/AustianoSC/homelab-infra.git
+    targetRevision: main
+    path: kubernetes/infra/metallb
+    directory:
+      include: pools.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: metallb-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      # On a fresh cluster this is applied alongside the MetalLB chart, before
+      # its CRDs exist. Skip the check that would fail on that, and retry.
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

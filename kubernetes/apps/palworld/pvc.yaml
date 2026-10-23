@@ -1,0 +1,21 @@
+# The whole /palworld directory: the game install SteamCMD downloads, the world
+# saves and the server's own backups. It lives on k3s-worker-1's data disk
+# (local-path binds it to whichever node first runs a pod that uses it).
+#
+# The storage class deletes the data when a claim is deleted, and local-path
+# volumes can't be resized, so this is protected from Argo CD: it is never pruned
+# and survives deleting the Application.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: palworld-data
+  namespace: palworld
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 40Gi

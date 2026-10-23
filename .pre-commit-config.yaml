@@ -1,0 +1,38 @@
+# Runs before every commit once installed (`make hooks`). It's a convenience and
+# can be skipped with `git commit --no-verify`, so CI (.github/workflows/lint.yml)
+# stays as the backstop. The slower checks (tflint, ansible-lint, tofu validate)
+# are left to `make lint` and CI.
+
+# OpenTofu renders ansible/inventory/hosts.yml, and tofu would show a permanent
+# diff if a hook "fixed" its whitespace. The lock file is generated too.
+exclude: ^(ansible/inventory/hosts\.yml|infra/\.terraform\.lock\.hcl)$
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      # Matches .editorconfig: trim trailing whitespace (except in Markdown,
+      # where two trailing spaces are a line break) and end files with a newline.
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      # Kubernetes manifests hold several documents per file.
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-merge-conflict
+      - id: check-added-large-files
+
+  # Uses the OpenTofu already installed for this repo. Rewrites files in place;
+  # the commit then fails once so you can review and re-stage the change.
+  - repo: local
+    hooks:
+      - id: tofu-fmt
+        name: tofu fmt
+        entry: tofu fmt
+        language: system
+        files: \.tf$

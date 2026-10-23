@@ -7,11 +7,17 @@
 .DEFAULT_GOAL := help
 
 KUBECONFIG_FILE := $(HOME)/.kube/homelab.yaml
+KUBECTL := kubectl --kubeconfig $(KUBECONFIG_FILE) --context homelab
+HELM    := helm --kubeconfig $(KUBECONFIG_FILE) --kube-context homelab
+
+# Argo CD chart (app version v3.5.5). Argo CD is the one component installed by
+# hand; everything else is deployed by it from kubernetes/argocd/applications.
+ARGOCD_CHART_VERSION := 10.10.5
 
 # Keeps `make lint` from touching the real .terraform/ used by plan and apply.
 LINT_DATA_DIR := $(CURDIR)/.tofu-lint
 
-.PHONY: help plan apply cluster kubeconfig metallb up destroy forget-hostkeys rebuild lint
+.PHONY: help plan apply cluster kubeconfig argocd palworld-secret up destroy forget-hostkeys rebuild lint hooks
 
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -29,15 +35,25 @@ cluster: ## Configure the nodes and install k3s (Ansible, idempotent)
 kubeconfig: ## Refresh ~/.kube/homelab.yaml from the control plane
 	cd ansible && op run --env-file=.env.tpl -- ansible-playbook playbooks/site.yml --tags kubeconfig
 
-metallb: ## Install MetalLB and the address pools (Helm)
-	helm repo add metallb https://metallb.github.io/metallb --force-update
-	helm upgrade --install metallb metallb/metallb --version 0.16.1 \
-		-n metallb-system --create-namespace \
-		-f kubernetes/infra/metallb/values.yaml --wait \
-		--kubeconfig $(KUBECONFIG_FILE) --kube-context homelab
-	kubectl --kubeconfig $(KUBECONFIG_FILE) --context homelab apply -f kubernetes/infra/metallb/pools.yaml
+argocd: ## Install Argo CD; it then deploys MetalLB, Palworld and the rest from Git
+	$(HELM) upgrade --install argocd argo-cd --repo https://argoproj.github.io/argo-helm \
+		--version $(ARGOCD_CHART_VERSION) -n argocd --create-namespace \
+		-f kubernetes/argocd/values.yaml
+	@# No --wait: Argo CD's own LoadBalancer Service can't get an address until
+	@# Argo CD has installed MetalLB, which is the next step. The repo is public,
+	@# so Argo CD pulls it over HTTPS with no credentials.
+	$(KUBECTL) -n argocd rollout status deploy/argocd-repo-server --timeout=300s
+	$(KUBECTL) -n argocd rollout status statefulset/argocd-application-controller --timeout=300s
+	$(KUBECTL) apply -f kubernetes/argocd/root-app.yaml
 
-up: apply forget-hostkeys cluster metallb ## Build everything from nothing: VMs, k3s, MetalLB
+palworld-secret: ## Create the Palworld passwords Secret from 1Password
+	$(KUBECTL) create namespace palworld --dry-run=client -o yaml | $(KUBECTL) apply -f -
+	op inject -i kubernetes/apps/palworld/.env.tpl \
+	  | $(KUBECTL) -n palworld create secret generic palworld \
+	      --from-env-file=/dev/stdin --dry-run=client -o yaml \
+	  | $(KUBECTL) apply --server-side -f -
+
+up: apply forget-hostkeys cluster palworld-secret argocd ## Build everything from nothing: VMs, k3s, Argo CD (which deploys the rest)
 
 destroy: ## Delete all three VMs and their disks (asks first)
 	cd infra && op run --env-file=.env.tpl -- tofu destroy
@@ -65,3 +81,7 @@ lint: ## Run the same checks CI runs
 	cd infra && TF_DATA_DIR=$(LINT_DATA_DIR) TF_VAR_state_passphrase=local-validate-only-0000 tofu validate
 	cd infra && tflint --recursive --config $(CURDIR)/.tflint.hcl
 	cd ansible && ansible-lint
+
+hooks: ## Install the git pre-commit hooks (secret scan, formatting); once per clone
+	@command -v pre-commit >/dev/null || { echo "Missing tool: pre-commit (pipx install pre-commit, or brew install pre-commit)" >&2; exit 1; }
+	pre-commit install

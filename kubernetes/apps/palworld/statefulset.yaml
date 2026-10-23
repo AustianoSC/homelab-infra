@@ -1,0 +1,122 @@
+# Palworld dedicated server
+#
+# Passwords come from the `palworld` Secret, created from 1Password by
+# `make palworld-secret`.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: palworld
+  namespace: palworld
+spec:
+  serviceName: palworld
+  # 0 until the saved world has been copied into the volume (see
+  # docs/plans/phase-2-gitops-palworld.md). Started empty, the server would
+  # install itself and create a new world. Once restored, set this to 1.
+  replicas: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: palworld
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: palworld
+    spec:
+      # The 16GB worker. Also keeps the pod on the node that holds its data.
+      nodeSelector:
+        kubernetes.io/hostname: k3s-worker-1
+      # Kubernetes would otherwise inject PALWORLD_PORT and similar variables
+      # for the Service, which the image can misread.
+      enableServiceLinks: false
+      # Palworld saves the world on SIGTERM; cutting this short risks save loss.
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: palworld
+          image: thijsvanloef/palworld-server-docker:v2.8.0
+          ports:
+            - name: game
+              containerPort: 8211
+              protocol: UDP
+            - name: query
+              containerPort: 27015
+              protocol: UDP
+          env:
+            - { name: PUID, value: "1000" }
+            - { name: PGID, value: "1000" }
+            - { name: TZ, value: America/Los_Angeles }
+
+            - { name: PORT, value: "8211" }
+            - { name: PLAYERS, value: "8" }
+            # PUBLIC_IP is deliberately unset: clients connect to the Service's
+            # LAN address over WireGuard. Set it to 192.168.8.48 only if
+            # clients fail to connect.
+            - { name: SERVER_NAME, value: "Austin's Homelab Palworld" }
+            - { name: SERVER_DESCRIPTION, value: "Running on Kubernetes, reachable over WireGuard" }
+            # Not listed publicly; friends connect by address over WireGuard.
+            - { name: COMMUNITY, value: "false" }
+            - { name: CROSSPLAY_PLATFORMS, value: "(Steam)" }
+
+            - name: SERVER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: palworld
+                  key: PALWORLD_SERVER_PASSWORD
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: palworld
+                  key: PALWORLD_ADMIN_PASSWORD
+
+            # REST API stays inside the container. AUTO_REBOOT depends on it.
+            - { name: REST_API_ENABLED, value: "true" }
+            - { name: REST_API_PORT, value: "8212" }
+            - { name: ENABLE_PLAYER_LOGGING, value: "true" }
+
+            - { name: ENABLE_PERF_THREADING_ARGS, value: "true" }
+            - { name: WORKER_THREADS_SERVER, value: "6" }
+
+            # Must stay true on first boot or the server is never installed.
+            - { name: UPDATE_ON_BOOT, value: "true" }
+            # Clients auto-update through Steam, so the server has to keep pace
+            # or nobody can connect after a patch.
+            - { name: AUTO_UPDATE_ENABLED, value: "true" }
+            - { name: AUTO_UPDATE_CRON_EXPRESSION, value: "0 4 * * *" }
+            - { name: AUTO_UPDATE_WARN_MINUTES, value: "15" }
+
+            # Palworld's server process leaks memory over long uptimes; a
+            # nightly restart is the standard mitigation.
+            - { name: AUTO_REBOOT_ENABLED, value: "true" }
+            - { name: AUTO_REBOOT_CRON_EXPRESSION, value: "0 5 * * *" }
+            - { name: AUTO_REBOOT_WARN_MINUTES, value: "5" }
+            - { name: AUTO_REBOOT_EVEN_IF_PLAYERS_ONLINE, value: "false" }
+
+            - { name: BACKUP_ENABLED, value: "true" }
+            - { name: BACKUP_CRON_EXPRESSION, value: "0 3 * * *" }
+            - { name: DELETE_OLD_BACKUPS, value: "true" }
+            - { name: OLD_BACKUP_DAYS, value: "14" }
+
+            - { name: AUTO_PAUSE_ENABLED, value: "false" }
+            - { name: PALWORLD_ALLOW_NEGATIVE_DELTA_TIME, value: "false" }
+
+            # Lets players move pals between worlds through the Global Palbox.
+            - { name: ALLOW_GLOBAL_PALBOX_EXPORT, value: "true" }
+            - { name: ALLOW_GLOBAL_PALBOX_IMPORT, value: "true" }
+          resources:
+            requests:
+              cpu: "4"
+              # Not the full limit: the node's MetalLB speaker and system pods
+              # have to fit beside it, and Local traffic needs the speaker on
+              # this node.
+              memory: 10Gi
+            limits:
+              # The node has 16GiB. This leaves about 2GiB for the OS and k3s,
+              # so Kubernetes kills the container rather than the node's OOM
+              # killer picking an arbitrary victim. No CPU limit: throttling
+              # makes a game server stutter.
+              memory: 14Gi
+          volumeMounts:
+            - name: data
+              mountPath: /palworld
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: palworld-data
