@@ -12,7 +12,7 @@ spec:
   # 0 until the saved world has been copied into the volume (see
   # docs/plans/phase-2-gitops-palworld.md). Started empty, the server would
   # install itself and create a new world. Once restored, set this to 1.
-  replicas: 0
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: palworld
