@@ -10,9 +10,9 @@ KUBECONFIG_FILE := $(HOME)/.kube/homelab.yaml
 KUBECTL := kubectl --kubeconfig $(KUBECONFIG_FILE) --context homelab
 HELM    := helm --kubeconfig $(KUBECONFIG_FILE) --kube-context homelab
 
-# Argo CD chart (app version v3.5.5). Argo CD is the one component installed by
+# Argo CD chart. Argo CD is the one component installed by
 # hand; everything else is deployed by it from kubernetes/argocd/applications.
-ARGOCD_CHART_VERSION := 10.10.5
+ARGOCD_CHART_VERSION := 10.11.1
 
 # Keeps `make lint` from touching the real .terraform/ used by plan and apply.
 LINT_DATA_DIR := $(CURDIR)/.tofu-lint
