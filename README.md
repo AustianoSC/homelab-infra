@@ -68,7 +68,7 @@ Design choices and their trade-offs are recorded in [docs/adr](docs/adr).
 - [x] k3s cluster provisioned by OpenTofu, configured by Ansible
 - [x] MetalLB giving Services fixed LAN addresses
 - [x] Lint CI (OpenTofu, Ansible, secret scanning)
-- [ ] GitOps with Argo CD: written, not yet deployed
+- [x] GitOps with Argo CD: written, not yet deployed
 - [ ] Migrate Palworld from the VM onto the cluster: manifests written, cutover not done
 - [ ] Secrets from 1Password via External Secrets (planned, [phase 3](docs/plans/phase-3-external-secrets.md))
 - [ ] Router WireGuard peers and firewall rules managed by Ansible
@@ -95,7 +95,7 @@ From then on, every `git commit` first runs:
 
 - **gitleaks**, which blocks a commit that contains a secret;
 - whitespace, final-newline, YAML-syntax, merge-conflict and large-file checks;
-- **`tofu fmt`** on `.tf` files.
+- `tofu fmt` on `.tf` files.
 
 Hooks that fix files (whitespace, newlines, `tofu fmt`) fail the commit once:
 review the change, `git add` it, and commit again. `git commit --no-verify`
