@@ -1,0 +1,4 @@
+# Python dependencies of scripts/validate_k8s.py. The one place the version is
+# set: `make validate` installs it into .venv-validate, and both the pre-commit
+# hook and CI call `make validate`.
+pyyaml==6.0.3

@@ -69,6 +69,37 @@ jobs:
         working-directory: ansible
         run: ansible-lint
 
+  # Argo CD applies whatever is on main, so this renders every Helm chart the
+  # cluster uses and validates the manifests (scripts/validate_k8s.py, the same
+  # script as `make validate`). Helm is preinstalled on the runner.
+  kubernetes:
+    name: Kubernetes manifests (helm template, kubeconform)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # No action exists for kubeconform, so the release is pinned by version
+      # and its sha256 is checked.
+      - name: Install kubeconform
+        env:
+          KUBECONFORM_VERSION: v0.8.0
+          KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+        run: |
+          curl -fsSL -o kubeconform.tar.gz \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  kubeconform.tar.gz" | sha256sum -c -
+          sudo tar -xzf kubeconform.tar.gz -C /usr/local/bin kubeconform
+          rm kubeconform.tar.gz
+          kubeconform -v
+
+      # Creates .venv-validate from scripts/requirements.txt, then runs the script.
+      - name: Validate
+        run: make validate
+
   secrets:
     name: gitleaks
     runs-on: ubuntu-latest

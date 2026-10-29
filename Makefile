@@ -17,7 +17,10 @@ ARGOCD_CHART_VERSION := 10.11.1
 # Keeps `make lint` from touching the real .terraform/ used by plan and apply.
 LINT_DATA_DIR := $(CURDIR)/.tofu-lint
 
-.PHONY: help plan apply cluster kubeconfig argocd palworld-secret eso-token up destroy forget-hostkeys rebuild lint hooks
+# Where `make validate` keeps its Python dependencies (scripts/requirements.txt).
+VALIDATE_VENV := .venv-validate
+
+.PHONY: help plan apply cluster kubeconfig argocd palworld-secret eso-token up destroy forget-hostkeys rebuild lint validate hooks
 
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -88,6 +91,18 @@ lint: ## Run the same checks CI runs
 	cd infra && TF_DATA_DIR=$(LINT_DATA_DIR) TF_VAR_state_passphrase=local-validate-only-0000 tofu validate
 	cd infra && tflint --recursive --config $(CURDIR)/.tflint.hcl
 	cd ansible && ansible-lint
+	@$(MAKE) --no-print-directory validate
+
+validate: $(VALIDATE_VENV)/.installed ## Check the Kubernetes manifests Argo CD deploys (helm template + kubeconform; no cluster needed)
+	$(VALIDATE_VENV)/bin/python scripts/validate_k8s.py
+
+# A private virtualenv, rebuilt whenever scripts/requirements.txt changes, so
+# the script's dependency has one pinned version and nothing is installed
+# system-wide.
+$(VALIDATE_VENV)/.installed: scripts/requirements.txt
+	python3 -m venv $(VALIDATE_VENV)
+	$(VALIDATE_VENV)/bin/pip install --quiet -r scripts/requirements.txt
+	touch $@
 
 hooks: ## Install the git pre-commit hooks (secret scan, formatting); once per clone
 	@command -v pre-commit >/dev/null || { echo "Missing tool: pre-commit (pipx install pre-commit, or brew install pre-commit)" >&2; exit 1; }

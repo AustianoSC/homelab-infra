@@ -36,3 +36,17 @@ repos:
         entry: tofu fmt
         language: system
         files: \.tf$
+
+      # Argo CD deploys whatever is on main within minutes, so check the
+      # manifests before they get there: renders each Helm chart and validates
+      # everything with kubeconform (same script as `make validate` and CI).
+      # Needs helm and kubeconform installed, and network access; skip it
+      # offline with `SKIP=k8s-validate git commit`. It calls `make validate`,
+      # which keeps PyYAML in a private virtualenv pinned by
+      # scripts/requirements.txt, the one place that version is set.
+      - id: k8s-validate
+        name: validate Kubernetes manifests
+        entry: make validate
+        language: system
+        pass_filenames: false
+        files: ^(kubernetes/|Makefile$|scripts/validate_k8s\.py$)
