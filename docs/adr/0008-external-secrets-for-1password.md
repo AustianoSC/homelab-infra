@@ -55,5 +55,10 @@ command line.
 - Secrets reach pods only when a pod starts, so a changed password needs a
   restart. Reloader can automate that later.
 - If 1Password is unreachable, existing Secrets stay; only changes stop.
+- Secrets are encrypted at rest by k3s (`secrets-encryption: true`), which
+  protects the datastore and etcd snapshots but not the API. The key lives on
+  the control plane, so an etcd snapshot only restores on a node that has it.
+  Everything is reproducible from 1Password, so the answer to losing the key is
+  a rebuild.
 - ESO is another operator to upgrade, and its CRDs are large, so Argo CD syncs
   it with server-side apply.
