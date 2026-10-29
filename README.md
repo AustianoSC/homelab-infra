@@ -95,7 +95,11 @@ From then on, every `git commit` first runs:
 
 - **gitleaks**, which blocks a commit that contains a secret;
 - whitespace, final-newline, YAML-syntax, merge-conflict and large-file checks;
-- `tofu fmt` on `.tf` files.
+- `tofu fmt` on `.tf` files;
+- when anything under `kubernetes/` changes, a render-and-validate of every
+  manifest Argo CD would deploy (`helm template` and `kubeconform`). It needs
+  `helm`, `kubeconform` and network access; offline, use
+  `SKIP=k8s-validate git commit`.
 
 Hooks that fix files (whitespace, newlines, `tofu fmt`) fail the commit once:
 review the change, `git add` it, and commit again. `git commit --no-verify`
@@ -111,9 +115,14 @@ vault with the secrets listed in the `.env.tpl` files. The one-time setup
 [docs/bootstrap.md](docs/bootstrap.md).
 
 Tools: [OpenTofu](https://opentofu.org) 1.8+, Ansible, `helm`, `kubectl`, the
-1Password CLI (`op`) and the AWS CLI. `make lint` also needs `ansible-lint` and
+1Password CLI (`op`) and the AWS CLI. `make lint` also needs `ansible-lint`,
 [tflint](https://github.com/terraform-linters/tflint) (`brew install tflint` on
-macOS; on Linux, the install script in its README). Then, from the repo root:
+macOS; on Linux, the install script in its README) and
+[kubeconform](https://github.com/yannh/kubeconform) (`brew install kubeconform`;
+on Linux, download the binary from its releases page). `make validate` keeps its
+one Python dependency in a private virtualenv (`.venv-validate`, pinned in
+`scripts/requirements.txt`), so it needs only `python3` with `venv`. Then, from
+the repo root:
 
 ```bash
 make up                                  # VMs, k3s, then Argo CD, which deploys the rest
@@ -129,7 +138,8 @@ make up                                  # VMs, k3s, then Argo CD, which deploys
 | `make argocd` | Install Argo CD and point it at this repo; it deploys MetalLB, Palworld and the rest |
 | `make palworld-secret` | Create Palworld's passwords Secret from 1Password |
 | `make kubeconfig` | Refresh `~/.kube/homelab.yaml`, e.g. on a new machine |
-| `make lint` | Run the same checks as CI |
+| `make validate` | Render the Helm charts and validate the Kubernetes manifests, no cluster needed |
+| `make lint` | Run the same checks as CI (includes `make validate`) |
 
 ## Use it
 
