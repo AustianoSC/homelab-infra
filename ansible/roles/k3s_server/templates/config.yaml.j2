@@ -19,4 +19,9 @@ node-taint:
 disable:
   - servicelb
 
+# Encrypt Secrets before they are written to etcd (and so to its snapshots).
+# On a new cluster this is all it takes. On one built without it, see step 9 of
+# docs/plans/phase-3-external-secrets.md for the one-time switch-over.
+secrets-encryption: true
+
 write-kubeconfig-mode: "0600"
