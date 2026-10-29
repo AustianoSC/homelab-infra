@@ -169,6 +169,43 @@ cutover shouldn't have a second moving part in it. The decision is recorded in
   and change the sentence in ADR 0007 that says `make` loads Palworld's
   passwords. Mark ADR 0008 Accepted.
 
+## Part 4: Encrypt Secrets at rest
+
+Secrets, including the ones External Secrets now creates, are stored by k3s in
+etcd as plain base64. Encrypting them protects the datastore files and etcd
+snapshots (a copy of either would otherwise show every value). It doesn't hide
+them from anyone who can read Secrets through the API or who is root on the
+control plane, where the key sits next to the data. Everything comes from
+1Password, so losing the key costs a rebuild, not data.
+
+- [x] **9. Turn on k3s secrets encryption.** (Done 2026-10-29 on the running
+  cluster: `Enabled`, `reencrypt_finished`, one active AES-CBC key; nodes Ready,
+  all Argo CD applications Synced and Healthy, Palworld uninterrupted.) The config is one line in
+  `ansible/roles/k3s_server/templates/config.yaml.j2`:
+  `secrets-encryption: true`. A cluster built after that has it from the first
+  start. The running cluster was built without it, and k3s (v1.36 qualifies;
+  the procedure needs 1.33.10, 1.34.6, 1.35.3 or newer) needs this order, on the
+  control plane (`ssh austin@192.168.8.11`):
+
+  | # | Do | Expected |
+  | --- | --- | --- |
+  | 1 | `sudo k3s etcd-snapshot save --name before-encryption` | A snapshot you can restore from. Do this first |
+  | 2 | `sudo k3s secrets-encrypt status` | `Encryption Status: Disabled, no configuration file found` |
+  | 3 | `sudo k3s secrets-encrypt enable` | Writes the encryption config; nothing is encrypted yet |
+  | 4 | From the repo root: `make cluster` | Ansible writes `secrets-encryption: true` and restarts k3s. The API is down for about a minute; pods keep running |
+  | 5 | `sudo k3s secrets-encrypt status` | `Disabled`, `Current Rotation Stage: start`, all hashes match |
+  | 6 | `sudo k3s secrets-encrypt rotate-keys` | Starts re-encrypting every Secret (about 5 a second) |
+  | 7 | `sudo k3s secrets-encrypt status`, repeat until done | `Enabled`, `reencrypt_finished` |
+  | 8 | `sudo systemctl restart k3s` | The restart the docs ask for after the rotation |
+  | 9 | `sudo k3s secrets-encrypt status`, then `kubectl get nodes` and `kubectl -n argocd get applications` | Still `Enabled`; node Ready; applications Synced and Healthy |
+
+  If a step doesn't match, stop and read the k3s page on
+  [secrets-encrypt](https://docs.k3s.io/cli/secrets-encrypt) before going on;
+  it warns that rotating keys out of order can leave the cluster unreadable.
+  Palworld isn't touched. Argo CD and External Secrets can't sync while the API
+  is restarting, and catch up afterwards. The `secrets-encrypt status` output
+  (`Enabled`, `reencrypt_finished`, one active key) is the proof it worked.
+
 ## Rolling back
 
 Delete the Palworld `ExternalSecret` first (or ESO keeps overwriting the
@@ -190,9 +227,9 @@ also has an optional client-side cache (default TTL 5 minutes); the docs call
 it experimental, so leave it off unless limits become a problem.
 - **Unique field names.** The 1Password SDK provider needs the fields in an item
 to have unique labels. Two fields with the same label in one item is an error.
-- **Secrets are still ordinary Kubernetes Secrets,** so they sit unencrypted in
-k3s's datastore. k3s can encrypt them at rest (`secrets-encryption: true` in
-the server config) if that matters; it's a separate decision.
+- **Secrets are ordinary Kubernetes Secrets,** readable by anyone with API
+access. Step 9 encrypts them at rest in k3s's datastore, which protects the
+files and snapshots, not the API.
 - A rebuilt cluster (`make rebuild`) needs `make eso-token` to run, which `up`
 does for you. After that every Secret comes back by itself.
 - The repo is public, and the manifests name the vault and item. That reveals
