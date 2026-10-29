@@ -38,35 +38,45 @@ cutover shouldn't have a second moving part in it. The decision is recorded in
 
 ## Part 1: 1Password (by hand, once)
 
-- [ ] **1. Create the vault and move Palworld's item.** In the 1Password app,
+- [x] **1. Create the vault and move Palworld's item.** In the 1Password app,
   create a vault named `homelab-k8s`. Move the `palworld` item (fields
   `server-password` and `admin-password`) from `homelab` into it. Nothing else
   moves. The store is per vault, so ESO can't see anything outside this one.
 
-- [ ] **2. Create the service account.** In 1Password on the web: Developer,
+- [x] **2. Create the service account.** In 1Password on the web: Developer,
   Infrastructure Secrets, Service Accounts, new. Name it `homelab-eso`, give it
   **read** access to `homelab-k8s` only, and set an expiry (90 days is a
   reasonable start). The token is shown **once**; use the option to save it in
-  1Password. Save it as an item `eso-service-account`, field `token`, in the
-  `homelab` vault (not in `homelab-k8s`, which the token itself can read).
+  1Password. Done as: item `**homelab-eso-service-account**`, token in the field
+  `**credential**` (1Password's default name for it), in the `homelab` vault
+  (not in `homelab-k8s`, which the token itself can read). So the reference
+  used everywhere below is `op://homelab/homelab-eso-service-account/credential`.
+  To check it without printing the token:
+  `op read op://homelab/homelab-eso-service-account/credential >/dev/null && echo ok`.
   The CLI can do the same with `op service-account create`; check its `--help`
   for the current flags.
 
 ## Part 2: Deploy ESO
 
-- [ ] **3. Add the token loader to the `Makefile`:**
+- [x] **3. Add the token loader to the** `Makefile`**:**
   ```make
   eso-token: ## Put the 1Password service account token in the cluster
   	$(KUBECTL) create namespace external-secrets --dry-run=client -o yaml | $(KUBECTL) apply -f -
-  	op read op://homelab/eso-service-account/token | tr -d '\n' \
+  	op read op://homelab/homelab-eso-service-account/credential | tr -d '\n' \
   	  | $(KUBECTL) -n external-secrets create secret generic onepassword-sa \
   	      --from-file=token=/dev/stdin --dry-run=client -o yaml \
   	  | $(KUBECTL) apply --server-side -f -
   ```
   Put `eso-token` in `up` before `argocd`, in place of `palworld-secret` once
   step 6 is done. Run it once now: `make eso-token`.
+  *Status:* the target is written, and `up` already runs it (next to
+  `palworld-secret` for now). It still has to be run once against the cluster.
 
-- [ ] **4. Add the two Applications.** Same shape as MetalLB.
+- [x] **4. Add the two Applications.** Same shape as MetalLB. Written and
+  checked offline (chart 2.14.0 renders; the store passes the CRD's schema).
+  Files: `kubernetes/argocd/applications/external-secrets.yaml` and
+  `external-secrets-config.yaml`, and `kubernetes/infra/external-secrets/`
+  (`values.yaml`, `cluster-secret-store.yaml`).
   `applications/external-secrets.yaml`: source is the chart
   `https://charts.external-secrets.io`, `chart: external-secrets`, with
   `targetRevision` pinned (2.14.0 was current on 2026-10-23; check before
@@ -74,10 +84,8 @@ cutover shouldn't have a second moving part in it. The decision is recorded in
   destination namespace `external-secrets`, and the same sync options as
   `metallb.yaml`: `CreateNamespace`, `ServerSideApply` (the CRDs are too big for
   a normal apply), and `retry`. `applications/external-secrets-config.yaml`:
-  path `kubernetes/infra/external-secrets`, `directory.include:
-  cluster-secret-store.yaml`, `SkipDryRunOnMissingResource=true` (the CRD
+  path `kubernetes/infra/external-secrets`, `directory.include: cluster-secret-store.yaml`, `SkipDryRunOnMissingResource=true` (the CRD
   doesn't exist yet on the first sync), `retry`.
-
   The store:
   ```yaml
   apiVersion: external-secrets.io/v1
@@ -103,7 +111,6 @@ cutover shouldn't have a second moving part in it. The decision is recorded in
   | Applications | `kubectl -n argocd get applications` | `external-secrets` and `external-secrets-config` Synced and Healthy |
   | Operator | `kubectl -n external-secrets get pods` | Controller, cert controller and webhook Running |
   | Store | `kubectl get clustersecretstore onepassword` | Status `Valid`, Ready `True` |
-
   If the store isn't `Valid`, read the message with
   `kubectl describe clustersecretstore onepassword`. The usual causes are a
   wrong vault name, a token without access to that vault, or an expired token.
@@ -150,7 +157,6 @@ cutover shouldn't have a second moving part in it. The decision is recorded in
   | Synced | `kubectl -n palworld get externalsecret palworld` | Status `SecretSynced`, Ready `True` |
   | Same values | `kubectl -n palworld get secret palworld -o jsonpath='{.data.PALWORLD_SERVER_PASSWORD}' \| base64 -d; echo` | The password from 1Password |
   | Rotation | Change a field on a throwaway item, then `kubectl -n palworld annotate externalsecret palworld force-sync=$(date +%s) --overwrite` | The Secret follows within seconds |
-
   Do the rotation test on a throwaway item rather than changing a real
   password. Add a temporary second entry to the ExternalSecret, or a temporary
   second ExternalSecret, pointing at it, and remove it afterwards.
@@ -159,7 +165,7 @@ cutover shouldn't have a second moving part in it. The decision is recorded in
   and the `palworld-secret` target, drop `palworld-secret` from `up`, and
   update the Makefile `help` text. In the docs, replace the `palworld` row in
   the 1Password table in `docs/bootstrap.md` with the `homelab-k8s` vault and
-  the `eso-service-account` item, change the secrets paragraph in `README.md`,
+  the `homelab-eso-service-account` item, change the secrets paragraph in `README.md`,
   and change the sentence in ADR 0007 that says `make` loads Palworld's
   passwords. Mark ADR 0008 Accepted.
 
@@ -172,28 +178,30 @@ Secret), then revert the commit from step 8, which brings back `.env.tpl` and
 ## Notes
 
 - **The token expires.** Put a reminder in a calendar for a week before. To
-  renew: create a new token on the same service account (or a new account),
-  update the `eso-service-account` item, run `make eso-token`. Existing Secrets
-  keep working in the meantime; only new syncs fail.
+renew: create a new token on the same service account (or a new account),
+update the `credential` field of the `homelab-eso-service-account` item, run
+`make eso-token`. Existing Secrets
+keep working in the meantime; only new syncs fail.
 - **If 1Password is unreachable,** Secrets that already exist stay in place.
-  Only creating or changing them stops.
+Only creating or changing them stops.
 - **Rate limits.** A one-hour refresh across a handful of ExternalSecrets is far
-  below the service account limits. Don't shorten it to seconds. The provider
-  also has an optional client-side cache (default TTL 5 minutes); the docs call
-  it experimental, so leave it off unless limits become a problem.
+below the service account limits. Don't shorten it to seconds. The provider
+also has an optional client-side cache (default TTL 5 minutes); the docs call
+it experimental, so leave it off unless limits become a problem.
 - **Unique field names.** The 1Password SDK provider needs the fields in an item
-  to have unique labels. Two fields with the same label in one item is an error.
+to have unique labels. Two fields with the same label in one item is an error.
 - **Secrets are still ordinary Kubernetes Secrets,** so they sit unencrypted in
-  k3s's datastore. k3s can encrypt them at rest (`secrets-encryption: true` in
-  the server config) if that matters; it's a separate decision.
+k3s's datastore. k3s can encrypt them at rest (`secrets-encryption: true` in
+the server config) if that matters; it's a separate decision.
 - A rebuilt cluster (`make rebuild`) needs `make eso-token` to run, which `up`
-  does for you. After that every Secret comes back by itself.
+does for you. After that every Secret comes back by itself.
 - The repo is public, and the manifests name the vault and item. That reveals
-  the layout, not any value.
+the layout, not any value.
 
 ## After phase 3
 
 1. Reloader (or similar) so pods restart when a Secret changes.
 2. Off-host backups of the Palworld volume.
 3. Each new personal project adds its own `ExternalSecret`, with items in
+
    `homelab-k8s`.

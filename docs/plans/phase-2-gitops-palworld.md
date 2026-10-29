@@ -165,10 +165,16 @@ stopped, and the VM hasn't run since), and part 1 is done.
   `palworld.internal:8211` with the server password. Check that your character,
   pals and base are there, then ask a friend to join.
 
-- [ ] **11. Burn in for a week.** Watch `kubectl -n palworld get pod` for
-  restarts and `kubectl top pod -n palworld` for memory. The nightly 05:00
-  restart happens inside the container, so the pod's restart count should stay
-  at zero.
+- [ ] **11. Burn in for a week.** Watch `kubectl top pod -n palworld` for
+  memory and `kubectl -n palworld get pod` for restarts. The nightly 05:00
+  reboot makes the container exit, and Kubernetes restarts it, so the restart
+  count goes up by one a night (6 after 6 days) and the last restart should be
+  about 05:00. More than that, or a restart at another time, means a crash or
+  an out-of-memory kill: check
+  `kubectl -n palworld describe pod palworld-0 | grep -A5 'Last State'`.
+  `kubectl logs` shows only the current container; `kubectl logs -p` shows the
+  one before it, which is the one that ran through the 03:00 backup and 04:00
+  update check.
 
 - [ ] **12. Retire the VM.** Only after a week of stable play:
   ```bash
