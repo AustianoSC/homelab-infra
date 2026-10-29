@@ -1,0 +1,25 @@
+# Helm values for the External Secrets Operator chart (version pinned in
+# kubernetes/argocd/applications/external-secrets.yaml). The defaults install
+# the CRDs, the controller, the webhook and the certificate controller, which is
+# what's wanted here. The only change is small resource requests, so the
+# scheduler accounts for the three pods.
+#
+# No limits: these are small, and an OOM-killed controller would stop every
+# Secret from syncing for no real benefit.
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+webhook:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+
+certController:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi

@@ -17,7 +17,7 @@ ARGOCD_CHART_VERSION := 10.11.1
 # Keeps `make lint` from touching the real .terraform/ used by plan and apply.
 LINT_DATA_DIR := $(CURDIR)/.tofu-lint
 
-.PHONY: help plan apply cluster kubeconfig argocd palworld-secret up destroy forget-hostkeys rebuild lint hooks
+.PHONY: help plan apply cluster kubeconfig argocd palworld-secret eso-token up destroy forget-hostkeys rebuild lint hooks
 
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -53,7 +53,14 @@ palworld-secret: ## Create the Palworld passwords Secret from 1Password
 	      --from-env-file=/dev/stdin --dry-run=client -o yaml \
 	  | $(KUBECTL) apply --server-side -f -
 
-up: apply forget-hostkeys cluster palworld-secret argocd ## Build everything from nothing: VMs, k3s, Argo CD (which deploys the rest)
+eso-token: ## Put the 1Password service account token in the cluster (for External Secrets)
+	$(KUBECTL) create namespace external-secrets --dry-run=client -o yaml | $(KUBECTL) apply -f -
+	op read op://homelab/homelab-eso-service-account/credential | tr -d '\n' \
+	  | $(KUBECTL) -n external-secrets create secret generic onepassword-sa \
+	      --from-file=token=/dev/stdin --dry-run=client -o yaml \
+	  | $(KUBECTL) apply --server-side -f -
+
+up: apply forget-hostkeys cluster palworld-secret eso-token argocd ## Build everything from nothing: VMs, k3s, Argo CD (which deploys the rest)
 
 destroy: ## Delete all three VMs and their disks (asks first)
 	cd infra && op run --env-file=.env.tpl -- tofu destroy
