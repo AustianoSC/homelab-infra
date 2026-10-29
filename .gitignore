@@ -31,3 +31,4 @@ apps/palworld/palworld/
 .DS_Store
 *.swp
 .tofu-lint/
+.venv-validate/
