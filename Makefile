@@ -20,7 +20,7 @@ LINT_DATA_DIR := $(CURDIR)/.tofu-lint
 # Where `make validate` keeps its Python dependencies (scripts/requirements.txt).
 VALIDATE_VENV := .venv-validate
 
-.PHONY: help plan apply cluster kubeconfig argocd palworld-secret eso-token up destroy forget-hostkeys rebuild lint validate hooks
+.PHONY: help plan apply cluster kubeconfig argocd eso-token up destroy forget-hostkeys rebuild lint validate hooks
 
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -49,13 +49,6 @@ argocd: ## Install Argo CD; it then deploys MetalLB, Palworld and the rest from 
 	$(KUBECTL) -n argocd rollout status statefulset/argocd-application-controller --timeout=300s
 	$(KUBECTL) apply -f kubernetes/argocd/root-app.yaml
 
-palworld-secret: ## Create the Palworld passwords Secret from 1Password
-	$(KUBECTL) create namespace palworld --dry-run=client -o yaml | $(KUBECTL) apply -f -
-	op inject -i kubernetes/apps/palworld/.env.tpl \
-	  | $(KUBECTL) -n palworld create secret generic palworld \
-	      --from-env-file=/dev/stdin --dry-run=client -o yaml \
-	  | $(KUBECTL) apply --server-side -f -
-
 eso-token: ## Put the 1Password service account token in the cluster (for External Secrets)
 	$(KUBECTL) create namespace external-secrets --dry-run=client -o yaml | $(KUBECTL) apply -f -
 	op read op://homelab/homelab-eso-service-account/credential | tr -d '\n' \
@@ -63,7 +56,7 @@ eso-token: ## Put the 1Password service account token in the cluster (for Extern
 	      --from-file=token=/dev/stdin --dry-run=client -o yaml \
 	  | $(KUBECTL) apply --server-side -f -
 
-up: apply forget-hostkeys cluster palworld-secret eso-token argocd ## Build everything from nothing: VMs, k3s, Argo CD (which deploys the rest)
+up: apply forget-hostkeys cluster eso-token argocd ## Build everything from nothing: VMs, k3s, Argo CD (which deploys the rest)
 
 destroy: ## Delete all three VMs and their disks (asks first)
 	cd infra && op run --env-file=.env.tpl -- tofu destroy

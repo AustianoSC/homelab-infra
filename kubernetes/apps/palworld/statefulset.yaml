@@ -1,7 +1,7 @@
 # Palworld dedicated server
 #
-# Passwords come from the `palworld` Secret, created from 1Password by
-# `make palworld-secret`.
+# Passwords come from the `palworld` Secret, which External Secrets builds from
+# 1Password (externalsecret.yaml).
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
