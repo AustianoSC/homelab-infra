@@ -66,13 +66,32 @@ and `local` must allow `import` for the Ubuntu cloud image.
 | `proxmox-tofu` | `token` | OpenTofu | The full token string, see above |
 | `tofu-state` | `password` | OpenTofu | The state encryption passphrase. **If it's lost the state can't be read.** |
 | `k3s` | `password` | Ansible | The cluster join token. It is baked in at install time, so it can't be changed later |
-| `palworld` | `server-password`, `admin-password` | `make palworld-secret` | |
+| `homelab-eso-service-account` | `credential` | `make eso-token` | The 1Password service account token External Secrets uses (read-only on the `homelab-k8s` vault, with an expiry). It lives here, not in `homelab-k8s` |
 Generate the two random ones with:
 
 ```bash
 op item create --vault homelab --category password --title tofu-state --generate-password='64,letters,digits'
 op item create --vault homelab --category password --title k3s --generate-password='64,letters,digits'
 ```
+
+## Secrets for the cluster (1Password, vault `homelab-k8s`)
+
+A second, small vault holds only what workloads running on the cluster need.
+External Secrets Operator reads it with a service account that has **read-only**
+access to this vault and an expiry, so keep Proxmox, state and join secrets out
+of it. See [ADR 0008](adr/0008-external-secrets-for-1password.md).
+
+| Item | Field | Used by |
+| --- | --- | --- |
+| `palworld` | `server-password`, `admin-password` | `kubernetes/apps/palworld/externalsecret.yaml` |
+
+Create the service account in 1Password on the web (Developer, Infrastructure
+Secrets, Service Accounts), save its token as the item
+`homelab-eso-service-account` in the `homelab` vault (table above), then run
+`make eso-token`. It is also part of `make up`. To renew an expiring token,
+create a new one, update that item's `credential` field and run
+`make eso-token` again. A new app adds its items here and an `ExternalSecret`
+next to its manifests.
 
 ## State bucket (AWS)
 

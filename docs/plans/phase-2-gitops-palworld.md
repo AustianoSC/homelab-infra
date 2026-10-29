@@ -45,7 +45,9 @@ and nothing was deployed by hand except Argo CD itself.
   protection**, which are free for public repos and block a secret from being
   pushed by accident.
 
-- [x] **2. Create the Palworld Secret.** The namespace and Secret have to exist
+- [x] **2. Create the Palworld Secret.** (As written for phase 2: `make
+  palworld-secret` was removed in phase 3, where External Secrets creates the
+  Secret instead.) The namespace and Secret have to exist
   before the first start; `make up` does this, or on its own:
   ```bash
   make palworld-secret

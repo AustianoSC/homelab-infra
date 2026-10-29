@@ -105,7 +105,7 @@ cutover shouldn't have a second moving part in it. The decision is recorded in
   Before pushing, check the manifests offline with
   `helm template` and `kubeconform`, as phase 2 did.
 
-- [ ] **5. Push and check.**
+- [x] **5. Push and check.**
   | Check | Command | Expected |
   | --- | --- | --- |
   | Applications | `kubectl -n argocd get applications` | `external-secrets` and `external-secrets-config` Synced and Healthy |
@@ -117,7 +117,7 @@ cutover shouldn't have a second moving part in it. The decision is recorded in
 
 ## Part 3: Move Palworld over
 
-- [ ] **6. Replace the hand-made Secret.** Add
+- [x] **6. Replace the hand-made Secret.** Add
   `kubernetes/apps/palworld/externalsecret.yaml`:
   ```yaml
   apiVersion: external-secrets.io/v1
@@ -151,7 +151,7 @@ cutover shouldn't have a second moving part in it. The decision is recorded in
   environment variables are copied when a container starts. Don't restart the
   pod until the Secret is back.
 
-- [ ] **7. Check it, including a rotation.**
+- [x] **7. Check it, including a rotation.**
   | Check | Command | Expected |
   | --- | --- | --- |
   | Synced | `kubectl -n palworld get externalsecret palworld` | Status `SecretSynced`, Ready `True` |
@@ -161,7 +161,7 @@ cutover shouldn't have a second moving part in it. The decision is recorded in
   password. Add a temporary second entry to the ExternalSecret, or a temporary
   second ExternalSecret, pointing at it, and remove it afterwards.
 
-- [ ] **8. Remove the old path.** Delete `kubernetes/apps/palworld/.env.tpl`
+- [x] **8. Remove the old path.** Delete `kubernetes/apps/palworld/.env.tpl`
   and the `palworld-secret` target, drop `palworld-secret` from `up`, and
   update the Makefile `help` text. In the docs, replace the `palworld` row in
   the 1Password table in `docs/bootstrap.md` with the `homelab-k8s` vault and

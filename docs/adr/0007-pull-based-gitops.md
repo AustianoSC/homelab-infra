@@ -31,9 +31,9 @@ Self-hosted GitHub Actions runners are not used on public repositories.
 - Nothing outside the LAN can push changes to the cluster, and the cluster
   needs no inbound connection from the internet.
 - Making the repo public is safe provided it holds no secrets. Secrets stay in
-  1Password. The one the cluster needs (Palworld's passwords) is loaded by
-  `make` and never committed. [ADR 0008](0008-external-secrets-for-1password.md)
-  proposes External Secrets to replace that.
+  1Password. The cluster reads what it needs through External Secrets
+  ([ADR 0008](0008-external-secrets-for-1password.md)), so nothing is committed
+  and only one read-only token is loaded by hand.
 - The Git history is the audit log of what was deployed.
 - Argo CD itself is the one thing installed by hand (`make argocd`). It manages
   MetalLB and Palworld, but not itself, so upgrading Argo CD means changing

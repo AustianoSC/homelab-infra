@@ -1,9 +1,9 @@
 # 0008. External Secrets Operator for 1Password secrets
 
-Status: Proposed (2026-10). Planned for phase 3; see
-[the plan](../plans/phase-3-external-secrets.md). Until it is built, Palworld's
-passwords are loaded by `make palworld-secret`, as [ADR 0007](0007-pull-based-gitops.md)
-describes.
+Status: Accepted (2026-10). Built in phase 3; see
+[the plan](../plans/phase-3-external-secrets.md). It replaced the
+`make palworld-secret` target that [ADR 0007](0007-pull-based-gitops.md) first
+relied on.
 
 ## Context
 

@@ -70,7 +70,7 @@ Design choices and their trade-offs are recorded in [docs/adr](docs/adr).
 - [x] Lint CI (OpenTofu, Ansible, secret scanning)
 - [x] GitOps with Argo CD: written, not yet deployed
 - [ ] Migrate Palworld from the VM onto the cluster: manifests written, cutover not done
-- [ ] Secrets from 1Password via External Secrets (planned, [phase 3](docs/plans/phase-3-external-secrets.md))
+- [x] Secrets from 1Password via External Secrets ([phase 3](docs/plans/phase-3-external-secrets.md))
 - [ ] Router WireGuard peers and firewall rules managed by Ansible
 - [ ] Observability (VictoriaMetrics + Grafana)
 
@@ -136,7 +136,7 @@ make up                                  # VMs, k3s, then Argo CD, which deploys
 | `make apply` | Create or update the three VMs |
 | `make cluster` | Configure the nodes and install k3s (safe to repeat) |
 | `make argocd` | Install Argo CD and point it at this repo; it deploys MetalLB, Palworld and the rest |
-| `make palworld-secret` | Create Palworld's passwords Secret from 1Password |
+| `make eso-token` | Put the 1Password service account token in the cluster, so External Secrets can read the `homelab-k8s` vault (`make up` does this) |
 | `make kubeconfig` | Refresh `~/.kube/homelab.yaml`, e.g. on a new machine |
 | `make validate` | Render the Helm charts and validate the Kubernetes manifests, no cluster needed |
 | `make lint` | Run the same checks as CI (includes `make validate`) |
@@ -201,9 +201,12 @@ op run --env-file=.env.tpl -- <command>
 ```
 
 CI has no credentials at all: it only lints, and never runs `apply`. Argo CD
-reads this public repo with no credentials, and the one Secret the cluster needs
-(Palworld's passwords) is created from 1Password by `make` and isn't in Git.
-External Secrets Operator could replace that later.
+reads this public repo with no credentials. Secrets the cluster needs come from
+1Password through External Secrets Operator: an `ExternalSecret` in Git (for
+example `kubernetes/apps/palworld/externalsecret.yaml`) names the item and field,
+and the operator creates the Kubernetes Secret. Only the read-only service
+account token for the `homelab-k8s` vault is loaded by hand (`make eso-token`).
+See [ADR 0008](docs/adr/0008-external-secrets-for-1password.md).
 
 ## Networking
 
