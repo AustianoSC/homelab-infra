@@ -68,16 +68,18 @@ Design choices and their trade-offs are recorded in [docs/adr](docs/adr).
 - [x] k3s cluster provisioned by OpenTofu, configured by Ansible
 - [x] MetalLB giving Services fixed LAN addresses
 - [x] Lint CI (OpenTofu, Ansible, secret scanning)
-- [x] GitOps with Argo CD: written, not yet deployed
-- [ ] Migrate Palworld from the VM onto the cluster: manifests written, cutover not done
-- [x] Secrets from 1Password via External Secrets ([phase 3](docs/plans/phase-3-external-secrets.md))
-- [ ] Router WireGuard peers and firewall rules managed by Ansible
-- [ ] Observability (VictoriaMetrics + Grafana)
+- [x] GitOps with Argo CD ([phase 2](docs/plans/phase-2-gitops-palworld.md))
+- [x] Palworld running on the cluster (phase 2); the old VM is kept, shut down, until it's retired
+- [x] Secrets from 1Password via External Secrets, encrypted at rest in k3s ([phase 3](docs/plans/phase-3-external-secrets.md))
+- [ ] Router WireGuard peers and firewall rules managed by Ansible ([phase 4](docs/plans/phase-4-router-as-code.md))
+- [ ] Observability (VictoriaMetrics + Grafana), phase 5
 
-The old Palworld VM is shut down, with a backup on the HDD, until the server
-moves onto the cluster. See [apps/palworld](apps/palworld). The current work is
-the [phase 2 plan](docs/plans/phase-2-gitops-palworld.md), a runbook with a
-checklist.
+Nice to have, not scheduled: off-host backups of the Palworld volume, Reloader
+(restart pods when a Secret changes), and a deploy flow for personal projects
+with Argo CD Image Updater.
+
+Each phase has a plan in [docs/plans](docs/plans): a runbook with a checklist,
+kept afterwards as a record of how the work was done.
 
 ## Set up a clone
 

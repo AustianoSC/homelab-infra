@@ -237,6 +237,9 @@ the layout, not any value.
 
 ## After phase 3
 
+Next is [phase 4](phase-4-router-as-code.md) (WireGuard peers and firewall
+rules), then observability. Nice to have:
+
 1. Reloader (or similar) so pods restart when a Secret changes.
 2. Off-host backups of the Palworld volume.
 3. Each new personal project adds its own `ExternalSecret`, with items in
