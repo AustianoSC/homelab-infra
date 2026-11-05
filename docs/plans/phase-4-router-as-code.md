@@ -166,5 +166,7 @@ restores everything.
 
 ## After phase 4
 
-1. Observability (VictoriaMetrics and Grafana).
-2. Nice to have: off-host backups of the Palworld volume, and Reloader.
+1. [Phase 5](phase-5-renovate.md): dependency update PRs with Renovate. It
+   doesn't depend on this phase and can be done before it.
+2. Observability (VictoriaMetrics and Grafana), phase 6.
+3. Nice to have: off-host backups of the Palworld volume, and Reloader.

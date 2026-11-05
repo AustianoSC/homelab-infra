@@ -72,11 +72,12 @@ Design choices and their trade-offs are recorded in [docs/adr](docs/adr).
 - [x] Palworld running on the cluster (phase 2); the old VM is kept, shut down, until it's retired
 - [x] Secrets from 1Password via External Secrets, encrypted at rest in k3s ([phase 3](docs/plans/phase-3-external-secrets.md))
 - [ ] Router WireGuard peers and firewall rules managed by Ansible ([phase 4](docs/plans/phase-4-router-as-code.md))
-- [ ] Observability (VictoriaMetrics + Grafana), phase 5
+- [ ] Dependency update PRs with Renovate ([phase 5](docs/plans/phase-5-renovate.md))
+- [ ] Observability (VictoriaMetrics + Grafana), phase 6
 
 Nice to have, not scheduled: off-host backups of the Palworld volume, Reloader
 (restart pods when a Secret changes), and a deploy flow for personal projects
-with Argo CD Image Updater.
+(new image tags arrive as Renovate PRs).
 
 Each phase has a plan in [docs/plans](docs/plans): a runbook with a checklist,
 kept afterwards as a record of how the work was done.
