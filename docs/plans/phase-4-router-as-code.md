@@ -18,49 +18,49 @@ Recorded on 2026-11-05. No keys are listed here; public keys go in
 `group_vars/router.yml` in step 4.
 
 - Firmware GL.iNet 4.10.1 on OpenWrt 23.05-SNAPSHOT (aarch64, `ipq53xx`).
-  `/overlay` has 6.3 GB free and `opkg` works, but there's no Python.
+`/overlay` has 6.3 GB free and `opkg` works, but there's no Python.
 - Peers live only in `/etc/config/wireguard_server`, as sections `peer_<id>`.
-  `network.wgserver` is a GL.iNet interface (`proto wgserver`) that points at
-  `main_server` and holds no peers.
+`network.wgserver` is a GL.iNet interface (`proto wgserver`) that points at
+`main_server` and holds no peers.
 - Firewall zones: `wgserver` (WireGuard) and `lan`. `wgserver2lan` is disabled,
-  so a peer reaches the LAN only through explicit rules. The design relies on
-  that.
+so a peer reaches the LAN only through explicit rules. The design relies on
+that.
 - The router stores every peer's `private_key` (GL.iNet generates the client
-  configs). No peer has a preshared key, only a `presharedkey_enable` flag.
+configs). No peer has a preshared key, only a `presharedkey_enable` flag.
 - No WireGuard init script exists; the tunnel is a netifd interface, built by
-  `/lib/netifd/proto/wgserver.sh`. On every `ifup` it rewrites
-  `/tmp/wireguard/wgserver` from `wireguard_server` and runs `wg setconf`, so
-  adding or changing a peer needs the interface brought down and up (all peers
-  reconnect within seconds). That script reads only these peer options:
-  `public_key`, `presharedkey`, `client_ip`, `deprecated` and `enabled`. The
-  server-side `AllowedIPs` of a peer is its `client_ip`. The `allowed_ips`,
-  `dns` and `mtu` options are only used by the GL.iNet UI to build client
-  configs. The script also runs `/etc/wireguard/scripts/before_wgserver_ifup.sh`
-  and `after_wgserver_if_down.sh`, which call `wgserver_func.sh` with
-  `set_firewall` and `set_dhcp up` on start, and `disabled_firewall` and
-  `set_dhcp down` on stop. A tunnel restart therefore reloads the firewall
-  twice (once with GL.iNet's zone disabled), commits `firewall` and `dhcp`, and
-  reloads dnsmasq, which can blip DNS for the whole LAN.
-  `server_set_firewall` in `/lib/functions/vpn_server_func.sh` writes only
-  these named sections: the zone `wgserver`, and the rules and forwardings
-  `wgserver_allow`, `wgserver2lan`, `wgserver2wan`, `lan2wgserver`,
-  `wgserver2wgserver` and `wgserver_allow_dns`. It never touches `homelab_*`
-  or the hand-made rules.
+`/lib/netifd/proto/wgserver.sh`. On every `ifup` it rewrites
+`/tmp/wireguard/wgserver` from `wireguard_server` and runs `wg setconf`, so
+adding or changing a peer needs the interface brought down and up (all peers
+reconnect within seconds). That script reads only these peer options:
+`public_key`, `presharedkey`, `client_ip`, `deprecated` and `enabled`. The
+server-side `AllowedIPs` of a peer is its `client_ip`. The `allowed_ips`,
+`dns` and `mtu` options are only used by the GL.iNet UI to build client
+configs. The script also runs `/etc/wireguard/scripts/before_wgserver_ifup.sh`
+and `after_wgserver_if_down.sh`, which call `wgserver_func.sh` with
+`set_firewall` and `set_dhcp up` on start, and `disabled_firewall` and
+`set_dhcp down` on stop. A tunnel restart therefore reloads the firewall
+twice (once with GL.iNet's zone disabled), commits `firewall` and `dhcp`, and
+reloads dnsmasq, which can blip DNS for the whole LAN.
+`server_set_firewall` in `/lib/functions/vpn_server_func.sh` writes only
+these named sections: the zone `wgserver`, and the rules and forwardings
+`wgserver_allow`, `wgserver2lan`, `wgserver2wan`, `lan2wgserver`,
+`wgserver2wgserver` and `wgserver_allow_dns`. It never touches `homelab_*`
+or the hand-made rules.
 - The server option `access` drives GL.iNet's "allow peers to the LAN" switch:
-  `ACCEPT` makes the zone's `input` ACCEPT and enables `wgserver2lan` (every
-  peer reaches the whole LAN); today it is `DROP`, so `wgserver2lan` is off.
-  The whole group design depends on that staying `DROP`, so the role never
-  changes `access` and fails if it isn't `DROP`.
+`ACCEPT` makes the zone's `input` ACCEPT and enables `wgserver2lan` (every
+peer reaches the whole LAN); today it is `DROP`, so `wgserver2lan` is off.
+The whole group design depends on that staying `DROP`, so the role never
+changes `access` and fails if it isn't `DROP`.
 - Nothing under `/usr/bin`, `/usr/sbin`, `/etc/init.d`, `/lib/netifd/proto`,
-  `/lib/functions` or `/etc/wireguard/scripts` mentions `allow_admin_access`,
-  so a tunnel restart doesn't create those two rules. They were made by hand
-  in the UI, like the two game rules.
+`/lib/functions` or `/etc/wireguard/scripts` mentions `allow_admin_access`,
+so a tunnel restart doesn't create those two rules. They were made by hand
+in the UI, like the two game rules.
 - Firewall order, from `nft list chain inet fw4 forward_wgserver`: all rules
-  come first, in config order, then the forwardings (`wgserver2wan`), then a
-  final reject. So a `homelab_*` reject rule to `wan` is evaluated before
-  GL.iNet's `wgserver2wan` accept, and the `no-internet` rule can work. The
-  hand-made game rules have 0 packets, so nothing has used them since the last
-  firewall reload.
+come first, in config order, then the forwardings (`wgserver2wan`), then a
+final reject. So a `homelab_*` reject rule to `wan` is evaluated before
+GL.iNet's `wgserver2wan` accept, and the `no-internet` rule can work. The
+hand-made game rules have 0 packets, so nothing has used them since the last
+firewall reload.
 - The router's SSH key is already in `/etc/dropbear/authorized_keys`.
 
 | Nickname | Section | Tunnel address | Client `allowed_ips` | Group |
@@ -77,8 +77,8 @@ Hand-made rules that mention `wgserver` (the ones this phase replaces):
 - `allow_admin_access_device`: `.2` and `.3` to the router itself, all protocols.
 - `allow_admin_access_lan`: `.2` and `.3` to the LAN, all protocols.
 - `allow_wg_to_palworld`: all of `10.0.0.0/24` to `192.168.8.119:8211/udp`.
-- ` allow_wg_to_games_subnet` (the name has a leading space): all of
-  `10.0.0.0/24` to `192.168.8.48/29`.
+-  `allow_wg_to_games_subnet` (the name has a leading space): all of
+`10.0.0.0/24` to `192.168.8.48/29`.
 - Three empty, nameless `rule` sections (leftovers) to clean up.
 
 GL.iNet's own rules stay as they are: `wgserver_allow` (WAN to port 51820),
@@ -104,17 +104,17 @@ GL.iNet's own rules stay as they are: `wgserver_allow` (WAN to port 51820),
 Two firewall facts the design depends on:
 
 - **Forwarded versus input traffic.** A peer reaching a machine behind the
-  router (a node, a game server) is *forwarded*, and a rule for it has a `dest`
-  zone (`lan`). A peer reaching the router itself (DNS, SSH, the admin UI) is
-  *input*, and a rule for it has no `dest`. A rule with `dest: lan` and
-  `dest_ip: 192.168.8.1` never matches traffic to the router. That's why the
-  `admin` group has a `router` destination of a different kind, and why
-  `players` has no DNS destination: GL.iNet's `wgserver_allow_dns` already lets
-  every peer ask the router for DNS at `10.0.0.1`.
+router (a node, a game server) is *forwarded*, and a rule for it has a `dest`
+zone (`lan`). A peer reaching the router itself (DNS, SSH, the admin UI) is
+*input*, and a rule for it has no `dest`. A rule with `dest: lan` and
+`dest_ip: 192.168.8.1` never matches traffic to the router. That's why the
+`admin` group has a `router` destination of a different kind, and why
+`players` has no DNS destination: GL.iNet's `wgserver_allow_dns` already lets
+every peer ask the router for DNS at `10.0.0.1`.
 - **Client config versus firewall.** `allowed_ips` on a peer is what goes into
-  that peer's client config (which traffic it sends into the tunnel). It isn't
-  enforcement, and changing it on the router doesn't change a device that
-  already has its config. The firewall rules are the enforcement.
+that peer's client config (which traffic it sends into the tunnel). It isn't
+enforcement, and changing it on the router doesn't change a device that
+already has its config. The firewall rules are the enforcement.
 
 ## What changes in the repo
 
@@ -165,7 +165,6 @@ Two firewall facts the design depends on:
   `wg set wgserver peer <public key> allowed-ips <address>` (and
   `... remove`) next to the `uci` change, which is what `ifup` would produce.
   Findings are in "What step 1 found" above.
-
   Take a full backup and keep it off the router. In the admin UI
   (`http://192.168.8.1`), System, then Backup (called "Backup and Restore" on
   some versions), then download. Or from your machine:
@@ -192,26 +191,55 @@ Two firewall facts the design depends on:
 
 ## Part 2: Write it
 
-- [ ] **3. Copy every peer's private key into 1Password.** All six: `my-iphone`,
+- [x] **3. Copy every peer's private key into 1Password.** All six: `my-iphone`,
   `my-macbook`, `gf-iphone`, `gf-macbook`, `friend-1` and `friend-2`. One item
-  per peer, named `wg-peer-<nickname>`, with the key in a field `private-key`.
+  per peer, named `wg-peer-<nickname>`, with the key in the item's `password` field (a `PASSWORD` item must have one,
+  and it matches `k3s/password` and the other items).
   This lets `make wg-client` reprint any peer's config, with no special case
   for admin peers, and means recovery doesn't depend on the UI backup alone.
-  Don't print the keys. For each peer:
-  ```bash
-  ssh root@192.168.8.1 'uci -q get wireguard_server.peer_1785.private_key' | pbcopy
+  The keys go from the router straight into `op` through a pipe, so they are
+  never printed, written to a file, or put in your shell history or in a
+  process's arguments. Needs `op` signed in, `jq`, and `wg` (`brew install jq wireguard-tools`). In zsh, from your machine:
+  ```zsh
+  peers=(my-iphone:peer_1785 my-macbook:peer_6995 gf-iphone:peer_648
+         gf-macbook:peer_7681 friend-1:peer_6738 friend-2:peer_3489)
+  for p in $peers; do
+    ssh -o LogLevel=error root@192.168.8.1 \
+      "uci -q get wireguard_server.${p##*:}.private_key" \
+    | jq -Rn --arg t "wg-peer-${p%%:*}" \
+        '{title:$t, category:"PASSWORD",
+          fields:[{id:"password", label:"password", purpose:"PASSWORD", type:"CONCEALED", value:input}]}' \
+    | op item create --vault homelab - >/dev/null && echo "created wg-peer-${p%%:*}"
+  done
   ```
-  Paste into the 1Password item, then `pbcopy </dev/null` to clear the
-  clipboard. The sections are `peer_1785` (`my-iphone`), `peer_6995`
-  (`my-macbook`), `peer_648` (`gf-iphone`), `peer_7681` (`gf-macbook`),
-  `peer_6738` (`friend-1`) and `peer_3489` (`friend-2`). Check one by comparing
-  a public key: `pbpaste | wg pubkey` should match that peer's public key from
-  `wg show`.
-
-  Also copy the server's private key (`wireguard_server.main_server.private_key`)
-  into an item `wg-server`, the same way. After a factory reset, setting that
-  key back means every existing client config keeps working.
-
+  Also copy the server's private key into an item `wg-server`. After a factory
+  reset, setting that key back means every existing client config keeps
+  working:
+  ```zsh
+  ssh -o LogLevel=error root@192.168.8.1 'uci -q get wireguard_server.main_server.private_key' \
+  | jq -Rn '{title:"wg-server", category:"PASSWORD",
+             fields:[{id:"password", label:"password", purpose:"PASSWORD", type:"CONCEALED", value:input}]}' \
+  | op item create --vault homelab - >/dev/null && echo "created wg-server"
+  ```
+  Then check that each stored key matches the public key the router is
+  actually using (the public keys are from `wg show` in step 1):
+  ```zsh
+  typeset -A pub=(
+    my-iphone  'Jrdk7vnadOQ1xCwSm4/acfV6R64VRQf+75cya6zU0Ds='
+    my-macbook 'bgIkulLvR4TiZ4/OPrrX2JlapxhYBiZxNGceAQB/oz0='
+    gf-iphone  'pFbHrQVjLzgW7iQnZYEF0YXW/F1UodI6vHfdi+bM1Ck='
+    gf-macbook 'MUr5lPYFHYQ18qBKJ22XbJlORday1Ez87wkX2roCVQk='
+    friend-1   'qwUboSflNlUu0Q2ZxYtwYmP1eSqRrKZ3Iky8tXTnd3U='
+    friend-2   'oJgJXUZj0+SpDY+01KRBXBq0Oh+rPQPR/oBbPyvVxzU=')
+  for n k in ${(kv)pub}; do
+    [[ "$(op read "op://homelab/wg-peer-$n/password" | wg pubkey)" == "$k" ]] \
+      && echo "ok        $n" || echo "MISMATCH  $n"
+  done
+  [[ "$(op read op://homelab/wg-server/password | wg pubkey)" == 'SbnfkrS1PsoPfGlogJhDF5ZaHJv99luAPKlBaFDXAG8=' ]] \
+    && echo "ok        wg-server" || echo "MISMATCH  wg-server"
+  ```
+  All seven must say `ok`. If `op item create -` isn't accepted by your `op`
+  version, use `--template=/dev/stdin` in its place.
   Admin keys grant the whole LAN and the router, so protect that vault the same
   as the Proxmox and cluster credentials already in it. If a device is lost or
   stolen, don't restore its key: make a new key pair as in step 8, replace the
@@ -258,41 +286,43 @@ Two firewall facts the design depends on:
 
 - [ ] **5. Write the role.** It renders a `uci batch` from the variables:
   - One section per peer in `wireguard_server`, named `peer_<peer_id>`, setting
-    `name`, `peer_id`, `public_key`, `client_ip`, `dns` (the server's tunnel
-    IP), `mtu` (1420), `persistent_keepalive` (25) and `allowed_ips`. For a
-    group with `internet: true`, `allowed_ips` is `0.0.0.0/0`; otherwise it's the
-    tunnel IP plus the `dest_ip` of the group's `to: lan` destinations (which
-    reproduces what friends have today). It never reads or writes `private_key`
-    or `presharedkey_enable` on a peer that already exists.
+  `name`, `peer_id`, `public_key`, `client_ip`, `dns` (the server's tunnel
+  IP), `mtu` (1420), `persistent_keepalive` (25) and `allowed_ips`. For a
+  group with `internet: true`, `allowed_ips` is `0.0.0.0/0`; otherwise it's the
+  tunnel IP plus the `dest_ip` of the group's `to: lan` destinations (which
+  reproduces what friends have today). It never reads or writes `private_key`
+  or `presharedkey_enable` on a peer that already exists.
   - One firewall rule per group and destination, named
-    `homelab_<group>_<destination>`, from the `wgserver` zone, restricted to
-    that group's peer addresses (`src_ip`). `to: lan` rules have `dest` set to
-    the LAN zone and `dest_ip`; `to: router` rules have no `dest`.
+  `homelab_<group>_<destination>`, from the `wgserver` zone, restricted to
+  that group's peer addresses (`src_ip`). `to: lan` rules have `dest` set to
+  the LAN zone and `dest_ip`; `to: router` rules have no `dest`.
   - For a group with `internet: false`, a `homelab_<group>_no-internet` rule
-    rejecting traffic from its peers to the `wan` zone, so a friend editing
-    their client config can't use the router as an exit. Step 8 checks that it
-    takes effect over GL.iNet's `wgserver2wan` forwarding.
+  rejecting traffic from its peers to the `wan` zone, so a friend editing
+  their client config can't use the router as an exit. Step 8 checks that it
+  takes effect over GL.iNet's `wgserver2wan` forwarding.
   - It deletes any `homelab_*` rule that isn't in the variables, and peers marked
-    `state: absent`.
-
+  `state: absent`.
   Then it:
   1. Saves the current `/etc/config/{wireguard_server,network,firewall}` to
+
      `/tmp/homelab-rollback/`.
   2. Starts a timer on the router: in 5 minutes, copy those files back and
-     reload. This runs on the router itself, so it fires even if Ansible has
-     lost the connection.
-  3. Applies the batch, `uci commit`, and reloads the firewall. For peers that
-     were added, changed or removed, it also updates the live tunnel with
-     `wg set wgserver peer <public key> allowed-ips <address>` or
-     `... remove` (reading a removed peer's public key from `uci` first), so
-     other peers aren't dropped and GL.iNet's start/stop scripts don't run.
-     Everything is committed in one go, never staged across a tunnel restart,
-     because those scripts run `uci commit firewall` too. An explicit
-     `-e wg_restart=true` does the full `ifdown wgserver; ifup wgserver`
-     instead.
-  4. Checks from the router that it's still healthy (`wg show` lists the
-     peers, the firewall reloaded without errors), then cancels the timer.
 
+     reload. This runs on the router itself, so it fires even if Ansible has
+      lost the connection.
+  3. Applies the batch, `uci commit`, and reloads the firewall. For peers that
+
+     were added, changed or removed, it also updates the live tunnel with
+      `wg set wgserver peer <public key> allowed-ips <address>` or
+      `... remove` (reading a removed peer's public key from `uci` first), so
+      other peers aren't dropped and GL.iNet's start/stop scripts don't run.
+      Everything is committed in one go, never staged across a tunnel restart,
+      because those scripts run `uci commit firewall` too. An explicit
+      `-e wg_restart=true` does the full `ifdown wgserver; ifup wgserver`
+      instead.
+  4. Checks from the router that it's still healthy (`wg show` lists the
+
+     peers, the firewall reloaded without errors), then cancels the timer.
   `--check --diff` renders the batch and shows the difference against
   `uci show` without applying it. A second run with no variable changes must
   report no changes.
@@ -312,32 +342,39 @@ Two firewall facts the design depends on:
   `allowed_ips`, the variables are wrong; fix them first.
 
 - [ ] **8. Apply with a test peer first.** Add a peer `test-phone` in the
-  `players` group. Create its key pair (`wg genkey`, `wg pubkey`) and save the
-  private key in a 1Password item `wg-peer-test-phone` without leaving it in a
-  file or your shell history. Only the public key goes in the repo. Run
-  `make router`. On the phone, off Wi-Fi (mobile data), check:
+  `players` group. Create its key pair and save the private key in a 1Password
+  item `wg-peer-test-phone`; the key lives only in a shell variable, never in a
+  file or your history. Only the public key goes in the repo:
+  ```zsh
+  key=$(wg genkey)
+  print -r -- "$key" \
+  | jq -Rn '{title:"wg-peer-test-phone", category:"PASSWORD",
+             fields:[{id:"password", label:"password", purpose:"PASSWORD", type:"CONCEALED", value:input}]}' \
+  | op item create --vault homelab - >/dev/null
+  print -r -- "$key" | wg pubkey      # copy this into wg_peers
+  unset key
+  ```
+  Run `make router`. On the phone, off Wi-Fi (mobile data), check:
   - `palworld.internal:8211` works,
   - `192.168.8.11` (a node) does **not**,
   - with the client's `AllowedIPs` set to `0.0.0.0/0`, internet through the
-    tunnel does **not** work (the `no-internet` rule),
+  tunnel does **not** work (the `no-internet` rule),
   - the peer appears in the GL.iNet UI. If GL.iNet's scripts need a
-    `private_key` on the peer, add it to the role's output for new peers, which
-    makes `make router` read 1Password.
-
+  `private_key` on the peer, add it to the role's output for new peers, which
+  makes `make router` read 1Password.
   Then, once, at a quiet time (it drops all peers and can blip LAN DNS), run
   `ifdown wgserver; ifup wgserver` on the router and confirm the `homelab_*`
   rules, the peers and `wg show` are all still correct. That proves a reboot or
   a restart from the UI is safe. Also check that `make router-check` still
   reports no changes afterwards.
 
-- [ ] **9. Remove the hand-made rules.** Once the `homelab_*` rules work, delete
+- [ ] **9. Remove the hand-made rules.** Once the `homelab_`* rules work, delete
   the old hand-made rules by name, once: `allow_wg_to_palworld`,
-  ` allow_wg_to_games_subnet` (with the leading space), `allow_admin_access_lan`
+   `allow_wg_to_games_subnet` (with the leading space), `allow_admin_access_lan`
   and `allow_admin_access_device`, plus the three empty rules (name them first,
   or delete from the highest index down, since indexes shift). Run `make router-check` again: no changes. Ask one friend to connect as a
   final check, and check that my girlfriend's phone still gets internet and
   `palworld.internal`.
-
   Nobody's reach should change. Today the two game rules match all of
   `10.0.0.0/24`, but only `family` and `players` depend on them: `admin` already
   reaches the whole LAN (which contains `games` and `.119`), and friends' client
@@ -368,22 +405,23 @@ restores everything.
 ## Notes
 
 - **Firmware upgrades** can reset packages, and sometimes config. After one,
-  run `make router-check` to see what drifted, then `make router`.
-- **Editing in the UI** is still possible, but a peer or `homelab_*` rule
-  changed there is overwritten on the next `make router`. Change those in Git.
+run `make router-check` to see what drifted, then `make router`.
+- **Editing in the UI** is still possible, but a peer or `homelab_`* rule
+changed there is overwritten on the next `make router`. Change those in Git.
 - **New games and existing clients.** A new destination inside a range friends
-  already route (the `games` /29) works for everyone at once. A destination
-  outside it also needs friends' client configs updated, because their
-  `AllowedIPs` live on their devices.
+already route (the `games` /29) works for everyone at once. A destination
+outside it also needs friends' client configs updated, because their
+`AllowedIPs` live on their devices.
 - **VM 200:** retiring it (phase 2, step 12) becomes deleting the
-  `palworld-vm` destination and running `make router`.
+`palworld-vm` destination and running `make router`.
 - **DNS and DHCP** (AdGuard rewrites like `palworld.internal`, DHCP
-  reservations) are on the same router and could be managed the same way later.
-  They're left out to keep this phase small.
+reservations) are on the same router and could be managed the same way later.
+They're left out to keep this phase small.
 
 ## After phase 4
 
 1. [Phase 5](phase-5-renovate.md): dependency update PRs with Renovate. It
+
    doesn't depend on this phase and can be done before it.
 2. Observability (VictoriaMetrics and Grafana), phase 6.
 3. Nice to have: off-host backups of the Palworld volume, and Reloader.
