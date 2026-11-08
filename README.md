@@ -254,10 +254,10 @@ gone, every client needs a new config.
 | --- | --- |
 | Router, AdGuard DNS (`router.internal`) | `192.168.8.1` |
 | Proxmox host (`homelab.internal`) | `192.168.8.150` |
-| Palworld VM (`palworld.internal`, shut down) | `192.168.8.119` |
-| k3s nodes | `192.168.8.11` - `192.168.8.13` |
-| MetalLB `games` pool | `192.168.8.48/29`: Palworld `.48`, the rest free for future games |
-| MetalLB `general` pool | `192.168.8.56/29`: Traefik `.56`, Argo CD `.57` |
+| Palworld VM (shut down) | `192.168.8.119` |
+| k3s nodes (`k3s-cp-1.internal`, `k3s-worker-1.internal`, `k3s-worker-2.internal`) | `192.168.8.11` - `192.168.8.13` |
+| MetalLB `games` pool | `192.168.8.48/29`: Palworld `.48` (`palworld.internal`), the rest free for future games |
+| MetalLB `general` pool | `192.168.8.56/29`: Traefik `.56`, Argo CD `.57` (`argocd.internal`) |
 | DHCP pool | `192.168.8.100` - `192.168.8.249` |
 
 ## Hardware
