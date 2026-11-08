@@ -32,3 +32,6 @@ apps/palworld/palworld/
 *.swp
 .tofu-lint/
 .venv-validate/
+
+# Python
+*.pyc
