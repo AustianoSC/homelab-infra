@@ -1,0 +1,15 @@
+---
+# Renders one peer's client config with 1Password references in place of the
+# secrets, to ansible/.ansible/wg-client.tpl. `make wg-client PEER=<name>`
+# fills it in with `op inject` and prints it. It runs on this machine and
+# never connects to the router.
+
+- name: Render a WireGuard client config template
+  hosts: router
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Render the template for {{ peer | default('(no peer given)') }}
+      ansible.builtin.include_role:
+        name: router
+        tasks_from: client.yml

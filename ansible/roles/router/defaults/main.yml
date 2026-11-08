@@ -1,0 +1,19 @@
+---
+# Names GL.iNet's firmware uses. They are what the router has today.
+router_wg_interface: wgserver
+router_wg_zone: wgserver
+router_lan_zone: lan
+router_server_section: main_server
+
+# Client-side settings written for every peer, as GL.iNet's UI does.
+router_peer_mtu: 1420
+router_peer_keepalive: 25
+
+# If an apply doesn't finish cleanly, the router puts its old config back by
+# itself after this long, even if the connection to it is lost.
+router_rollback_seconds: 300
+
+# Normally peers are added and removed on the running tunnel, so nobody else
+# is disconnected. Pass -e router_wg_restart=true to restart the whole tunnel
+# instead (every peer drops for a few seconds and LAN DNS can blip).
+router_wg_restart: false

@@ -1,0 +1,13 @@
+{% set p = (wg_peers | selectattr('name', 'equalto', peer) | list)[0] %}
+[Interface]
+# {{ p.name }}
+PrivateKey = {{ '{{' }} op://homelab/wg-peer-{{ p.name }}/password {{ '}}' }}
+Address = {{ p.address }}
+DNS = {{ wg_server.tunnel_ip }}
+MTU = {{ router_peer_mtu }}
+
+[Peer]
+PublicKey = {{ wg_server.public_key }}
+AllowedIPs = {{ p.group | wg_allowed_ips(wg_access_groups, wg_server.tunnel_ip) }}
+Endpoint = {{ '{{' }} op://homelab/wg-server/endpoint {{ '}}' }}
+PersistentKeepalive = {{ router_peer_keepalive }}

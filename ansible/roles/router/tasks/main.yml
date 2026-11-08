@@ -1,0 +1,69 @@
+---
+# Only the script module runs on the router: it has no Python, and everything
+# the job needs (uci, wg, nft, sort) is already there. The job is one shell
+# script, files/apply.sh, that:
+#   1. stages the change on copies of the config files and compares the result,
+#   2. with --check, stops there and reports whether anything would change,
+#   3. otherwise saves the old config, arms a timer that restores it, applies
+#      the change, reloads, verifies, and only then disarms the timer.
+# templates/run.sh.j2 puts the settings and the desired state (uci.batch.j2)
+# in front of it.
+
+- name: Check the variables
+  ansible.builtin.import_tasks: validate.yml
+
+# `state` is optional on a peer (it means present), so only peers that set it
+# can be marked absent.
+- name: Work out which peers go, and whether this is a dry run
+  ansible.builtin.set_fact:
+    router_absent_peers: "{{ wg_peers | selectattr('state', 'defined') | selectattr('state', 'equalto', 'absent') | list }}"
+    router_mode: "{{ 'plan' if ansible_check_mode else 'apply' }}"
+
+- name: Work out which peers stay
+  ansible.builtin.set_fact:
+    router_active_peers: "{{ wg_peers | difference(router_absent_peers) }}"
+
+# check_mode is off for the tasks in this block because the script changes
+# nothing in --check mode: it reads the router's config, compares, and writes
+# only under /tmp, which it removes. (The script module is skipped in check mode.)
+- name: Render the script, send it to the router and run it
+  block:
+    - name: Make a temporary file for the script
+      ansible.builtin.tempfile:
+        state: file
+        suffix: .sh
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      check_mode: false
+      register: router_script_file
+
+    - name: Render the script
+      ansible.builtin.template:
+        src: run.sh.j2
+        dest: "{{ router_script_file.path }}"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      check_mode: false
+
+    - name: Plan and apply the WireGuard peers and firewall rules
+      ansible.builtin.script: "{{ router_script_file.path }}"
+      register: router_result
+      changed_when: "'HOMELAB_RESULT=changed' in router_result.stdout"
+      check_mode: false
+
+    - name: Show what the router said
+      ansible.builtin.debug:
+        msg: "{{ router_result.stdout }}"
+  always:
+    - name: Remove the temporary file
+      ansible.builtin.file:
+        path: "{{ router_script_file.path }}"
+        state: absent
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      check_mode: false
+      when: router_script_file.path is defined

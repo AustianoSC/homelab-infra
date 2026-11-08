@@ -1,0 +1,73 @@
+---
+# Catches mistakes in group_vars/router.yml before anything touches the router.
+# The checks run on this machine; nothing here connects to the router.
+
+- name: Check the server settings
+  ansible.builtin.assert:
+    that:
+      - wg_server.tunnel_ip is match('^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
+      - wg_server.public_key is match('^[A-Za-z0-9+/]{43}=$')
+    quiet: true
+
+- name: Check each peer
+  ansible.builtin.assert:
+    that:
+      - item.name is match('^[a-z0-9]+(-[a-z0-9]+)*$')
+      - item.peer_id | string is match('^[0-9]+$')
+      - item.group in wg_access_groups
+      - item.address is match('^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/32$')
+      - item.public_key is match('^[A-Za-z0-9+/]{43}=$')
+      - (item.state | default('present')) in ['present', 'absent']
+    fail_msg: "wg_peers entry {{ item.name | default('(no name)') }} is malformed"
+    quiet: true
+  loop: "{{ wg_peers }}"
+  loop_control:
+    label: "{{ item.name | default('(no name)') }}"
+
+- name: Check peers don't share a name, id, address or key
+  ansible.builtin.assert:
+    that:
+      - wg_peers | map(attribute='name') | unique | length == wg_peers | length
+      - wg_peers | map(attribute='peer_id') | unique | length == wg_peers | length
+      - wg_peers | map(attribute='address') | unique | length == wg_peers | length
+      - wg_peers | map(attribute='public_key') | unique | length == wg_peers | length
+    fail_msg: Two wg_peers entries share a name, peer_id, address or public_key.
+    quiet: true
+
+# A rule with an empty source list would match every peer, so a group's rules
+# are skipped when it has no peers; the role never renders one without addresses.
+- name: Check each access group
+  ansible.builtin.assert:
+    that:
+      - item.key is match('^[a-z0-9]+$')
+      - item.value.destinations | length > 0
+      - item.value.destinations | map(attribute='name') | unique | length == item.value.destinations | length
+    fail_msg: "Access group {{ item.key }} needs a lowercase alphanumeric name and uniquely named destinations."
+    quiet: true
+  loop: "{{ wg_access_groups | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Check each destination
+  ansible.builtin.assert:
+    that:
+      - item.1.name is match('^[a-z0-9]+(-[a-z0-9]+)*$')
+      - item.1.name != 'no-internet'
+      - item.1.to in ['lan', 'router']
+      - item.1.to != 'lan' or item.1.dest_ip is defined
+      - item.1.dest_ip is not defined or item.1.dest_ip is match('^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+(/[0-9]+)?$')
+      - item.1.proto is not defined or item.1.proto is not string
+    fail_msg: >-
+      Destination {{ item.1.name | default('(no name)') }} in group {{ item.0.key }} is malformed:
+      `to` is lan or router, lan needs dest_ip, proto is a list, and `no-internet` is reserved.
+    quiet: true
+  loop: "{{ wg_access_groups | dict2items | subelements('value.destinations') }}"
+  loop_control:
+    label: "{{ item.0.key }}/{{ item.1.name | default('(no name)') }}"
+
+- name: Check at least one peer stays
+  ansible.builtin.assert:
+    that:
+      - wg_peers | selectattr('state', 'defined') | selectattr('state', 'equalto', 'absent') | list | length < wg_peers | length
+    fail_msg: Every peer is marked absent; refusing to empty the WireGuard server.
+    quiet: true

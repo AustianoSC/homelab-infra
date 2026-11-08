@@ -1,0 +1,19 @@
+#!/bin/sh
+# What Ansible sends to the router: the settings, the desired state, and then
+# files/apply.sh, which does the work. Rendered on your machine; nothing in
+# here is secret (public keys and addresses only).
+MODE='{{ router_mode }}'
+IFACE='{{ router_wg_interface }}'
+ZONE='{{ router_wg_zone }}'
+SERVER='{{ router_server_section }}'
+RESTART='{{ 'yes' if router_wg_restart | bool else 'no' }}'
+DELAY='{{ router_rollback_seconds }}'
+ABSENT_IDS='{{ router_absent_peers | map(attribute='peer_id') | join(' ') }}'
+
+desired_batch() {
+cat <<'HOMELAB_DESIRED'
+{% include 'uci.batch.j2' %}
+HOMELAB_DESIRED
+}
+
+{{ lookup('ansible.builtin.file', 'apply.sh') }}

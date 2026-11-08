@@ -1,0 +1,10 @@
+---
+# Keeps the router's WireGuard peers and firewall rules as group_vars/router.yml
+# describes them. Safe to re-run: with no change to the variables a second run
+# reports no changes.
+
+- name: Router WireGuard peers and firewall rules
+  hosts: router
+  gather_facts: false
+  roles:
+    - router

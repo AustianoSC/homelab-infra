@@ -1,0 +1,51 @@
+---
+# WireGuard peers and firewall rules on the GL.iNet router, applied by
+# roles/router (docs/plans/phase-4-router-as-code.md). Change this file, run
+# `make router-check` to see the difference, then `make router`.
+#
+# Nothing secret belongs here. Each peer's private key is in 1Password at
+# op://homelab/wg-peer-<name>/password, and the router's own key stays on the
+# router (copy in op://homelab/wg-server). The repo is public, so peers have
+# nicknames, not real names.
+
+wg_server:
+  # The router's address inside the tunnel. Peers use it as their DNS server.
+  tunnel_ip: 10.0.0.1
+  public_key: SbnfkrS1PsoPfGlogJhDF5ZaHJv99luAPKlBaFDXAG8=
+
+# What the game groups can reach. One entry per destination, in the order the
+# router lists them in a client's AllowedIPs. A new game inside 192.168.8.48/29
+# needs nothing here; anything outside it is one more entry.
+wg_game_destinations: &game_destinations
+  - { name: palworld-vm, to: lan, dest_ip: 192.168.8.119, proto: [udp], dest_port: 8211 }  # until VM 200 is retired
+  - { name: games, to: lan, dest_ip: 192.168.8.48/29, proto: [tcp, udp, icmp] }
+
+# Each group is a set of peers and the places they may reach.
+#   to: lan     forwarded traffic to dest_ip in the LAN zone
+#   to: router  traffic to the router itself (SSH, the admin UI)
+#   internet    whether the client config sends all traffic through the router.
+#               Groups without it are also blocked from the internet by a rule.
+# DNS needs no entry: GL.iNet already lets every peer ask the router for it.
+wg_access_groups:
+  admin:
+    internet: true
+    destinations:
+      - { name: lan, to: lan, dest_ip: 192.168.8.0/24 }
+      - { name: router, to: router }
+  tunnel:
+    internet: true
+    destinations: *game_destinations
+  players:
+    internet: false
+    destinations: *game_destinations
+
+# peer_id is the number in the router's section name (peer_1785). A new peer
+# needs an unused one. To remove a peer, add `state: absent` to its entry and
+# run `make router`, then delete the entry.
+wg_peers:
+  - { name: my-iphone, peer_id: 1785, group: admin, address: 10.0.0.2/32, public_key: Jrdk7vnadOQ1xCwSm4/acfV6R64VRQf+75cya6zU0Ds= }
+  - { name: my-macbook, peer_id: 6995, group: admin, address: 10.0.0.3/32, public_key: bgIkulLvR4TiZ4/OPrrX2JlapxhYBiZxNGceAQB/oz0= }
+  - { name: gf-iphone, peer_id: 648, group: tunnel, address: 10.0.0.4/32, public_key: pFbHrQVjLzgW7iQnZYEF0YXW/F1UodI6vHfdi+bM1Ck= }
+  - { name: gf-macbook, peer_id: 7681, group: tunnel, address: 10.0.0.5/32, public_key: MUr5lPYFHYQ18qBKJ22XbJlORday1Ez87wkX2roCVQk= }
+  - { name: friend-1, peer_id: 6738, group: players, address: 10.0.0.6/32, public_key: qwUboSflNlUu0Q2ZxYtwYmP1eSqRrKZ3Iky8tXTnd3U= }
+  - { name: friend-2, peer_id: 3489, group: players, address: 10.0.0.7/32, public_key: oJgJXUZj0+SpDY+01KRBXBq0Oh+rPQPR/oBbPyvVxzU= }

@@ -1,0 +1,65 @@
+{# What the router should have: one `uci batch` line per setting. Nothing here
+   reads the router; files/apply.sh compares this with what is there.
+
+   Peers are updated in place, so settings that aren't listed (a peer's
+   private_key, for one) are never touched. Firewall rules named homelab_* are
+   deleted and re-added by apply.sh, so a setting dropped from the variables
+   goes away. #}
+{% for p in router_active_peers %}
+{% set section = 'wireguard_server.peer_' ~ p.peer_id %}
+set {{ section }}=peers
+set {{ section }}.name='{{ p.name }}'
+set {{ section }}.peer_id='{{ p.peer_id }}'
+set {{ section }}.public_key='{{ p.public_key }}'
+set {{ section }}.client_ip='{{ p.address }}'
+set {{ section }}.dns='{{ wg_server.tunnel_ip }}'
+set {{ section }}.allowed_ips='{{ p.group | wg_allowed_ips(wg_access_groups, wg_server.tunnel_ip) }}'
+set {{ section }}.mtu='{{ router_peer_mtu }}'
+set {{ section }}.persistent_keepalive='{{ router_peer_keepalive }}'
+set {{ section }}.deprecated='0'
+{% endfor %}
+{% for group_name, group in wg_access_groups.items() %}
+{% set addresses = router_active_peers | selectattr('group', 'equalto', group_name) | map(attribute='address') | list %}
+{# A rule with no source addresses would match every peer, so a group with no peers gets no rules. #}
+{% if addresses %}
+{% for d in group.destinations %}
+{% set rule = 'firewall.homelab_' ~ group_name ~ '_' ~ (d.name | replace('-', '_')) %}
+set {{ rule }}=rule
+set {{ rule }}.name='homelab_{{ group_name }}_{{ d.name | replace('-', '_') }}'
+set {{ rule }}.src='{{ router_wg_zone }}'
+{% for address in addresses %}
+add_list {{ rule }}.src_ip='{{ address }}'
+{% endfor %}
+{% if d.to == 'lan' %}
+set {{ rule }}.dest='{{ router_lan_zone }}'
+set {{ rule }}.dest_ip='{{ d.dest_ip }}'
+{% endif %}
+{% if d.proto is defined %}
+{% for protocol in d.proto %}
+add_list {{ rule }}.proto='{{ protocol }}'
+{% endfor %}
+{% else %}
+set {{ rule }}.proto='all'
+{% endif %}
+{% if d.dest_port is defined %}
+set {{ rule }}.dest_port='{{ d.dest_port }}'
+{% endif %}
+set {{ rule }}.target='ACCEPT'
+set {{ rule }}.family='ipv4'
+{% endfor %}
+{# A group without internet is also rejected towards the WAN, so a peer that edits its client config can't use the router as an exit. #}
+{% if not (group.internet | default(false)) %}
+{% set rule = 'firewall.homelab_' ~ group_name ~ '_no_internet' %}
+set {{ rule }}=rule
+set {{ rule }}.name='homelab_{{ group_name }}_no_internet'
+set {{ rule }}.src='{{ router_wg_zone }}'
+{% for address in addresses %}
+add_list {{ rule }}.src_ip='{{ address }}'
+{% endfor %}
+set {{ rule }}.dest='wan'
+set {{ rule }}.proto='all'
+set {{ rule }}.target='REJECT'
+set {{ rule }}.family='ipv4'
+{% endif %}
+{% endif %}
+{% endfor %}

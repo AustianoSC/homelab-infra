@@ -1,0 +1,28 @@
+---
+# Writes a peer's client config with 1Password references in place of the
+# secrets (the private key and the server's address), for `make wg-client` to
+# fill in with `op inject`. The file holds references only, never a secret.
+
+- name: Check the variables
+  ansible.builtin.import_tasks: validate.yml
+
+- name: Check the peer exists
+  ansible.builtin.assert:
+    that:
+      - peer is defined
+      - peer in (wg_peers | map(attribute='name') | list)
+    fail_msg: "Pass -e peer=<name>, one of: {{ wg_peers | map(attribute='name') | join(', ') }}"
+    quiet: true
+
+- name: Create the directory for the template
+  ansible.builtin.file:
+    path: "{{ playbook_dir }}/../.ansible"
+    state: directory
+    mode: "0700"
+
+- name: Write the client config template
+  ansible.builtin.copy:
+    dest: "{{ playbook_dir }}/../.ansible/wg-client.tpl"
+    content: "{{ lookup('ansible.builtin.template', 'wg-client.conf.j2') }}"
+    mode: "0600"
+  changed_when: false

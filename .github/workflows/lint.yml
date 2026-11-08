@@ -69,6 +69,10 @@ jobs:
         working-directory: ansible
         run: ansible-lint
 
+      # shellcheck is preinstalled on the runner.
+      - name: Shellcheck the script that runs on the router
+        run: shellcheck -s sh ansible/roles/router/files/apply.sh
+
   # Argo CD applies whatever is on main, so this renders every Helm chart the
   # cluster uses and validates the manifests (scripts/validate_k8s.py, the same
   # script as `make validate`). Helm is preinstalled on the runner.

@@ -20,7 +20,7 @@ LINT_DATA_DIR := $(CURDIR)/.tofu-lint
 # Where `make validate` keeps its Python dependencies (scripts/requirements.txt).
 VALIDATE_VENV := .venv-validate
 
-.PHONY: help plan apply cluster kubeconfig argocd eso-token up destroy forget-hostkeys rebuild lint validate hooks
+.PHONY: help plan apply cluster kubeconfig argocd eso-token up destroy forget-hostkeys rebuild lint validate hooks router-check router wg-client
 
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -56,6 +56,30 @@ eso-token: ## Put the 1Password service account token in the cluster (for Extern
 	      --from-file=token=/dev/stdin --dry-run=client -o yaml \
 	  | $(KUBECTL) apply --server-side -f -
 
+# The router is not part of `up`: it isn't rebuilt with the cluster, and a
+# change to it deserves its own look at `router-check` first. Run these from the
+# LAN, not over WireGuard. They need no secrets, so no `op run`.
+router-check: ## Show what `make router` would change on the router (read-only)
+	cd ansible && ansible-playbook -i inventory/router.yml playbooks/router.yml --check
+
+router: ## Apply WireGuard peers and firewall rules to the router (restores the old config itself if it fails)
+	cd ansible && ansible-playbook -i inventory/router.yml playbooks/router.yml
+
+wg-client: ## Print a WireGuard client config: make wg-client PEER=friend-1 [QR=1 for a QR code]
+	@test -n "$(PEER)" || { echo "Usage: make wg-client PEER=<name> [QR=1]" >&2; exit 1; }
+	@# The template holds 1Password references only; `op inject` fills in the
+	@# private key and the endpoint, and the result goes to the terminal, never
+	@# to a file. Ansible's own output goes to stderr so a pipe sees only the config.
+	@# A LAN address as the endpoint works only on the home network; the config would
+	@# silently fail to connect anywhere else, so refuse it.
+	@set -e; tpl=ansible/.ansible/wg-client.tpl; trap 'rm -f $$tpl' EXIT; \
+	host=$$(op read op://homelab/wg-server/endpoint); host=$${host%:*}; \
+	case "$$host" in 10.*|127.*|192.168.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*|"") \
+	  echo "wg-server's endpoint is '$$host', which isn't reachable from outside; set it to the router's public IP or DDNS name (see docs/bootstrap.md)" >&2; exit 1;; \
+	esac; \
+	(cd ansible && ansible-playbook -i inventory/router.yml playbooks/wg-client.yml -e "peer=$(PEER)" >&2); \
+	op inject -i $$tpl $(if $(QR),| qrencode -t ansiutf8)
+
 up: apply forget-hostkeys cluster eso-token argocd ## Build everything from nothing: VMs, k3s, Argo CD (which deploys the rest)
 
 destroy: ## Delete all three VMs and their disks (asks first)
@@ -76,7 +100,7 @@ forget-hostkeys: ## Drop stale SSH host keys for the nodes (they change on every
 rebuild: destroy up ## Destroy, then rebuild from zero
 
 lint: ## Run the same checks CI runs
-	@for t in tofu tflint ansible-lint; do \
+	@for t in tofu tflint ansible-lint shellcheck; do \
 	  command -v $$t >/dev/null || { echo "Missing tool: $$t (see 'Run it' in the README)" >&2; exit 1; }; \
 	done
 	tofu fmt -check -recursive -diff infra
@@ -84,6 +108,7 @@ lint: ## Run the same checks CI runs
 	cd infra && TF_DATA_DIR=$(LINT_DATA_DIR) TF_VAR_state_passphrase=local-validate-only-0000 tofu validate
 	cd infra && tflint --recursive --config $(CURDIR)/.tflint.hcl
 	cd ansible && ansible-lint
+	shellcheck -s sh ansible/roles/router/files/apply.sh
 	@$(MAKE) --no-print-directory validate
 
 validate: $(VALIDATE_VENV)/.installed ## Check the Kubernetes manifests Argo CD deploys (helm template + kubeconform; no cluster needed)
