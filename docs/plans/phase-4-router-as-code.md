@@ -313,17 +313,17 @@ already has its config. The firewall rules are the enforcement.
   2. Starts a timer on the router: in 5 minutes, copy those files back and
 
      reload. This runs on the router itself, so it fires even if Ansible has
-       lost the connection.
+        lost the connection.
   3. Applies the batch, `uci commit`, and reloads the firewall. For peers that
 
      were added, changed or removed, it also updates the live tunnel with
-       `wg set wgserver peer <public key> allowed-ips <address>` or
-       `... remove` (reading a removed peer's public key from `uci` first), so
-       other peers aren't dropped and GL.iNet's start/stop scripts don't run.
-       Everything is committed in one go, never staged across a tunnel restart,
-       because those scripts run `uci commit firewall` too. An explicit
-       `-e router_wg_restart=true` does the full `ifdown wgserver; ifup wgserver`
-       instead.
+        `wg set wgserver peer <public key> allowed-ips <address>` or
+        `... remove` (reading a removed peer's public key from `uci` first), so
+        other peers aren't dropped and GL.iNet's start/stop scripts don't run.
+        Everything is committed in one go, never staged across a tunnel restart,
+        because those scripts run `uci commit firewall` too. An explicit
+        `-e router_wg_restart=true` does the full `ifdown wgserver; ifup wgserver`
+        instead.
   4. Checks from the router that it's still healthy (`wg show` lists the
 
      peers, the firewall reloaded without errors), then cancels the timer.
@@ -391,21 +391,57 @@ already has its config. The firewall rules are the enforcement.
   a restart from the UI is safe. Also check that `make router-check` still
   reports no changes afterwards.
 
-- [ ] **9. Remove the hand-made rules.** Once the `homelab_`* rules work, delete
-  the old hand-made rules by name, once: `allow_wg_to_palworld`,
-   `allow_wg_to_games_subnet` (with the leading space), `allow_admin_access_lan`
-  and `allow_admin_access_device`, plus the three empty rules (name them first,
-  or delete from the highest index down, since indexes shift). Run `make router-check` again: no changes. Ask one friend to connect as a
-  final check, and check that my girlfriend's phone still gets internet and
-  `palworld.internal`.
-  Nobody's reach should change. Today the two game rules match all of
+- [x] **9. Remove the hand-made rules.** Done: the four named rules and the three empty ones are gone, `make router-check` reports no changes, and the admin, girlfriend, test-phone and friend checks pass. Until they're gone, the old rules sit
+  before the `homelab_*` ones in the chain and match first, so the `homelab_*`
+  allow rules have not carried any traffic yet (their counters stay at zero).
+  This step is what proves them. The router's own copy of the old config in
+  `/tmp/homelab-rollback/` is gone after a reboot, so first save one on your
+  machine; it holds no secrets (peers are in a different file):
+  ```zsh
+  ssh router 'cat /etc/config/firewall' > ~/firewall.before-step9
+  ```
+  The rules are found by their stable ids (`uci -X show firewall`), not by
+  position, and each delete checks the name first. The three nameless rules are
+  empty sections (no options) and are removed only if they still are. This stages
+  the change and prints it, and nothing is live yet:
+  ```zsh
+  ssh router 'sh -s' <<'EOF'
+  set -eu
+  del() {
+    [ "$(uci -q get "firewall.$1.name" || true)" = "$2" ] \
+      || { echo "not deleting $1: its name is not '$2'" >&2; exit 1; }
+    uci delete "firewall.$1"
+  }
+  del cfg1d92bd allow_admin_access_device
+  del cfg2192bd allow_admin_access_lan
+  del cfg2292bd allow_wg_to_palworld
+  del cfg2f92bd ' allow_wg_to_games_subnet'
+  for id in cfg1f92bd cfg2092bd cfg2e92bd; do
+    [ -z "$(uci -q show "firewall.$id" | grep -v '=rule$' || true)" ] && uci delete "firewall.$id"
+  done
+  uci changes firewall
+  EOF
+  ```
+  Read the output: seven `-firewall...` lines and nothing else. To go ahead,
+  `ssh router 'uci commit firewall && /etc/init.d/firewall reload'`. To back out
+  before that, `ssh router 'uci revert firewall'`; after it, restore
+  `~/firewall.before-step9` to `/etc/config/firewall` and reload. Then check:
+  - `make router-check` says nothing to change,
+  - `nft list chain inet fw4 forward_wgserver | grep homelab` on the router
+  shows the `homelab_*` rules and no old ones,
+  - an admin device (over WireGuard, off Wi-Fi) reaches the LAN, a node, and the
+  router (`ssh root@192.168.8.1`, the admin UI), and its internet works,
+  - my girlfriend's phone gets internet and `palworld.internal`,
+  - the test phone and one friend reach Palworld and nothing else, and the
+  `homelab_*` counters now go up as they connect.
+  Nobody's reach should change. The old game rules matched all of
   `10.0.0.0/24`, but only `tunnel` and `players` depend on them: `admin` already
   reaches the whole LAN (which contains `games` and `.119`), and friends' client
   configs and the lack of any other LAN rule keep them to those two destinations.
   What changes is that the rules are scoped per group instead of to the whole
   tunnel subnet, so a new peer reaches nothing until it's in a group.
 
-- [ ] **10. Hand out configs from the repo.** `make wg-client PEER=friend-2`
+- [x] **10. Hand out configs from the repo.** `make wg-client PEER=friend-2`
   prints a client config (`QR=1` for a QR code, which needs `qrencode`) with the
   peer's private key, the router's public key, the endpoint, `DNS = 10.0.0.1`
   and the `AllowedIPs` for the peer's group (for `players`:
