@@ -74,6 +74,19 @@ op item create --vault homelab --category password --title tofu-state --generate
 op item create --vault homelab --category password --title k3s --generate-password='64,letters,digits'
 ```
 
+The router's WireGuard keys are kept in this vault too, as items with the key in
+the `password` field (see [ADR 0009](adr/0009-router-config-as-code.md)). They
+are created once, from the router, without printing a key (the commands are in
+[the phase 4 plan](plans/phase-4-router-as-code.md), step 3):
+
+| Item | Field | Used by | Notes |
+| --- | --- | --- | --- |
+| `wg-server` | `password` | recovery | The router's WireGuard private key. Setting it back after a factory reset keeps every client config working |
+| `wg-server` | `endpoint` | `make wg-client` | `host:port` friends connect to: the router's public IP or DDNS name and `51820`, never a LAN address (`192.168.8.1` works only at home, and the client then fails to connect without an error). A custom text field, kept out of Git because the repo is public |
+| `wg-peer-<name>` | `password` | `make wg-client` | One per peer in `group_vars/router.yml`: that peer's WireGuard private key. Put who the nickname is in the item's notes |
+
+Add the endpoint with `op item edit wg-server --vault homelab 'endpoint[text]=<host>:51820'`.
+
 ## Secrets for the cluster (1Password, vault `homelab-k8s`)
 
 A second, small vault holds only what workloads running on the cluster need.

@@ -119,6 +119,7 @@ vault with the secrets listed in the `.env.tpl` files. The one-time setup
 
 Tools: [OpenTofu](https://opentofu.org) 1.8+, Ansible, `helm`, `kubectl`, the
 1Password CLI (`op`) and the AWS CLI. `make lint` also needs `ansible-lint`,
+[shellcheck](https://www.shellcheck.net) (`brew install shellcheck`),
 [tflint](https://github.com/terraform-linters/tflint) (`brew install tflint` on
 macOS; on Linux, the install script in its README) and
 [kubeconform](https://github.com/yannh/kubeconform) (`brew install kubeconform`;
@@ -141,6 +142,9 @@ make up                                  # VMs, k3s, then Argo CD, which deploys
 | `make argocd` | Install Argo CD and point it at this repo; it deploys MetalLB, Palworld and the rest |
 | `make eso-token` | Put the 1Password service account token in the cluster, so External Secrets can read the `homelab-k8s` vault (`make up` does this) |
 | `make kubeconfig` | Refresh `~/.kube/homelab.yaml`, e.g. on a new machine |
+| `make router-check` | Show what would change on the router's WireGuard peers and firewall rules (read-only) |
+| `make router` | Apply them. Run from the LAN; the router puts its old config back by itself if the change fails |
+| `make wg-client PEER=friend-1` | Print a peer's WireGuard client config (`QR=1` for a QR code), with its key filled in from 1Password |
 | `make validate` | Render the Helm charts and validate the Kubernetes manifests, no cluster needed |
 | `make lint` | Run the same checks as CI (includes `make validate`) |
 
@@ -185,7 +189,8 @@ Palworld starts with an empty world.
 
 ```
 infra/       OpenTofu: Proxmox VMs for the k3s nodes, Ansible inventory
-ansible/     Ansible: node baseline and k3s install
+ansible/     Ansible: node baseline and k3s install; roles/router for the router's
+             WireGuard peers and firewall rules
 kubernetes/  What Argo CD deploys: argocd/ (itself and the app list),
              infra/ (MetalLB), apps/ (Palworld)
 apps/        Workloads still outside the cluster (Docker Compose)
@@ -222,6 +227,28 @@ Every game server gets a fixed address from the `192.168.8.48/29` block, and
 friends' `AllowedIPs` and the firewall rule name that block, so adding a game
 needs no change on either side. Internal names use `.internal` through AdGuard
 Home, since macOS reserves `.local` for mDNS.
+
+The WireGuard peers and the firewall rules that limit them are defined in
+`ansible/inventory/group_vars/router.yml` and applied with `make router` (see
+[ADR 0009](docs/adr/0009-router-config-as-code.md)). Peers belong to a group:
+`admin` (the LAN and the router itself), `tunnel` (the game servers, and the
+internet through the router) and `players` (the game servers only). To add a
+friend, add their public key as one line under `wg_peers` in that file, keep
+the private key in 1Password as `wg-peer-<name>`, run `make router-check` and
+`make router`, then hand over the config from `make wg-client PEER=<name>`. To
+open a new game, add a destination to the groups that should reach it. To
+remove someone, give their entry `state: absent` and run `make router`. Peers
+have nicknames because this repo is public. Changes made to those peers or to
+`homelab_*` firewall rules in the router's UI are overwritten by the next run;
+everything else there is left alone.
+
+**If the router is reset:** set up the WireGuard server in the UI, put the
+server's private key back from the 1Password item `wg-server` (over SSH:
+`uci set wireguard_server.main_server.private_key=<key>` and `.public_key=` the
+`wg_server.public_key` from `group_vars/router.yml`, `uci commit`, then
+`ifdown wgserver; ifup wgserver`), keep "allow access to the local network"
+off, and run `make router`. Existing client configs keep working. If the key is
+gone, every client needs a new config.
 
 | Name | Address |
 | --- | --- |

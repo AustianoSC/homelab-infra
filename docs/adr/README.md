@@ -14,3 +14,4 @@ they are never rewritten to hide a change of mind.
 | [0006](0006-local-path-over-longhorn.md) | local-path storage instead of Longhorn | Accepted |
 | [0007](0007-pull-based-gitops.md) | Pull-based GitOps with Argo CD | Accepted |
 | [0008](0008-external-secrets-for-1password.md) | External Secrets Operator for 1Password secrets | Accepted |
+| [0009](0009-router-config-as-code.md) | Router WireGuard peers and firewall rules as code, with Ansible and `uci` | Accepted |
