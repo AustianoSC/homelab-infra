@@ -20,7 +20,7 @@ LINT_DATA_DIR := $(CURDIR)/.tofu-lint
 # Where `make validate` keeps its Python dependencies (scripts/requirements.txt).
 VALIDATE_VENV := .venv-validate
 
-.PHONY: help plan apply cluster kubeconfig argocd eso-token up destroy forget-hostkeys rebuild lint validate hooks router-check router wg-client
+.PHONY: help plan apply cluster kubeconfig argocd eso-token up destroy forget-hostkeys rebuild lint validate hooks router-check router wg-client wg-peer
 
 help: ## Show this help
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -80,6 +80,10 @@ wg-client: ## Print a WireGuard client config: make wg-client PEER=friend-1 [QR=
 	(cd ansible && ansible-playbook -i inventory/router.yml playbooks/wg-client.yml -e "peer=$(PEER)" >&2); \
 	op inject -i $$tpl $(if $(QR),| qrencode -t ansiutf8)
 
+wg-peer: ## Make a new peer's key (stored in 1Password) and print its router.yml line: make wg-peer PEER=friend-3 GROUP=players
+	@test -n "$(PEER)" -a -n "$(GROUP)" || { echo "Usage: make wg-peer PEER=<name> GROUP=<group>" >&2; exit 1; }
+	@scripts/wg-new-peer.sh "$(PEER)" "$(GROUP)"
+
 up: apply forget-hostkeys cluster eso-token argocd ## Build everything from nothing: VMs, k3s, Argo CD (which deploys the rest)
 
 destroy: ## Delete all three VMs and their disks (asks first)
@@ -109,6 +113,7 @@ lint: ## Run the same checks CI runs
 	cd infra && tflint --recursive --config $(CURDIR)/.tflint.hcl
 	cd ansible && ansible-lint
 	shellcheck -s sh ansible/roles/router/files/apply.sh
+	shellcheck scripts/wg-new-peer.sh
 	@$(MAKE) --no-print-directory validate
 
 validate: $(VALIDATE_VENV)/.installed ## Check the Kubernetes manifests Argo CD deploys (helm template + kubeconform; no cluster needed)
