@@ -244,9 +244,9 @@ The WireGuard peers and the firewall rules that limit them are defined in
 [ADR 0009](docs/adr/0009-router-config-as-code.md)). Peers belong to a group:
 `admin` (the LAN and the router itself), `tunnel` (the game servers, and the
 internet through the router) and `players` (the game servers only). To add a
-friend, add their public key as one line under `wg_peers` in that file, keep
-the private key in 1Password as `wg-peer-<name>`, run `make router-check` and
-`make router`, then hand over the config from `make wg-client PEER=<name>`. To
+friend, run `make wg-peer PEER=<name> GROUP=<group>` (it creates the key in
+1Password as `wg-peer-<name>` and prints the line to paste under `wg_peers` in
+that file), then run `make router-check` and `make router`, then hand over the config from `make wg-client PEER=<name>`. To
 open a new game, add a destination to the groups that should reach it. To
 remove someone, give their entry `state: absent` and run `make router`. Peers
 have nicknames because this repo is public. Changes made to those peers or to
