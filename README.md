@@ -71,13 +71,21 @@ Design choices and their trade-offs are recorded in [docs/adr](docs/adr).
 - [x] GitOps with Argo CD ([phase 2](docs/plans/phase-2-gitops-palworld.md))
 - [x] Palworld running on the cluster (phase 2); the old VM is kept, shut down, until it's retired
 - [x] Secrets from 1Password via External Secrets, encrypted at rest in k3s ([phase 3](docs/plans/phase-3-external-secrets.md))
-- [ ] Router WireGuard peers and firewall rules managed by Ansible ([phase 4](docs/plans/phase-4-router-as-code.md))
+- [x] Router WireGuard peers and firewall rules managed by Ansible ([phase 4](docs/plans/phase-4-router-as-code.md))
+- [ ] Internal `.internal` DNS names managed by Ansible, in dnsmasq on the router ([phase 4b](docs/plans/phase-4b-router-dns.md))
 - [ ] Dependency update PRs with Renovate ([phase 5](docs/plans/phase-5-renovate.md))
 - [ ] Observability (VictoriaMetrics + Grafana), phase 6
 
 Nice to have, not scheduled: off-host backups of the Palworld volume, Reloader
-(restart pods when a Secret changes), and a deploy flow for personal projects
-(new image tags arrive as Renovate PRs).
+(restart pods when a Secret changes), a deploy flow for personal projects
+(new image tags arrive as Renovate PRs), and DNS names from the cluster with
+[k8s_gateway](https://github.com/k8s-gateway/k8s_gateway): a small CoreDNS in
+the cluster answers a subzone such as `k8s.internal` from Ingress hosts and
+LoadBalancer Services, and the router's dnsmasq forwards that subzone to it, so
+a new app behind Traefik needs no `dns_records` entry. Worth it once several
+apps sit behind Traefik (Grafana is the first); the static names stay on the
+router so they work while the cluster is down. The project is active but small,
+so check it's still maintained before adopting it.
 
 Each phase has a plan in [docs/plans](docs/plans): a runbook with a checklist,
 kept afterwards as a record of how the work was done.
