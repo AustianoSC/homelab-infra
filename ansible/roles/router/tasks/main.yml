@@ -1,7 +1,7 @@
 ---
 # Only the script module runs on the router: it has no Python, and everything
-# the job needs (uci, wg, nft, sort) is already there. The job is one shell
-# script, files/apply.sh, that:
+# the job needs (uci, wg, nft, sort, nslookup) is already there. The job is one
+# shell script, files/apply.sh, that:
 #   1. stages the change on copies of the config files and compares the result,
 #   2. with --check, stops there and reports whether anything would change,
 #   3. otherwise saves the old config, arms a timer that restores it, applies
@@ -18,6 +18,7 @@
   ansible.builtin.set_fact:
     router_absent_peers: "{{ wg_peers | selectattr('state', 'defined') | selectattr('state', 'equalto', 'absent') | list }}"
     router_mode: "{{ 'plan' if ansible_check_mode else 'apply' }}"
+    router_lan_address: "{{ ansible_host }}"
 
 - name: Work out which peers stay
   ansible.builtin.set_fact:
@@ -48,7 +49,7 @@
       changed_when: false
       check_mode: false
 
-    - name: Plan and apply the WireGuard peers and firewall rules
+    - name: Plan and apply the WireGuard peers, firewall rules and DNS names
       ansible.builtin.script: "{{ router_script_file.path }}"
       register: router_result
       changed_when: "'HOMELAB_RESULT=changed' in router_result.stdout"
@@ -57,6 +58,47 @@
     - name: Show what the router said
       ansible.builtin.debug:
         msg: "{{ router_result.stdout }}"
+
+    # Through AdGuard, the path clients use. delegate_to would change
+    # ansible_host, so this uses the address saved above. A mismatch fails the
+    # run without rolling the router back: it means AdGuard's settings or a
+    # rewrite are wrong, and the router's own config is what the repo asked for.
+    # dig only reads, so it also runs in --check, but only when nothing is
+    # pending: a name the dry run would add isn't on the router yet.
+    - name: Check the names resolve through AdGuard
+      ansible.builtin.command:
+        argv:
+          - dig
+          - +short
+          - "{{ item.name }}"
+          - "@{{ router_lan_address }}"
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      check_mode: false
+      register: router_dns_lookups
+      loop: "{{ dns_records | default([]) }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when:
+        - not ansible_check_mode or 'HOMELAB_RESULT=nochange' in router_result.stdout
+        - dns_records | default([]) | length > 0
+
+    - name: Fail if a name doesn't resolve through AdGuard
+      ansible.builtin.assert:
+        that:
+          - item.stdout_lines | select('match', '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$') | list == [item.item.ip]
+        fail_msg: >-
+          {{ item.item.name }} resolved to '{{ item.stdout | trim }}' through AdGuard,
+          not {{ item.item.ip }}. A rewrite in AdGuard overrides the repo, or its
+          upstream line [/internal/]127.0.0.1:53 is missing.
+        quiet: true
+      loop: "{{ router_dns_lookups.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when:
+        - not ansible_check_mode or 'HOMELAB_RESULT=nochange' in router_result.stdout
+        - dns_records | default([]) | length > 0
   always:
     - name: Remove the temporary file
       ansible.builtin.file:

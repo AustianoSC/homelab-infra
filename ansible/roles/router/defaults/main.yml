@@ -17,3 +17,12 @@ router_rollback_seconds: 300
 # is disconnected. Pass -e router_wg_restart=true to restart the whole tunnel
 # instead (every peer drops for a few seconds and LAN DNS can blip).
 router_wg_restart: false
+
+# AdGuard answers clients and forwards *.internal to dnsmasq, which serves
+# dns_records. The role adds the dnsmasq half (/internal/, "answer locally,
+# never forward") and only reads AdGuard's config: it refuses to run without
+# the upstream line, because then no client would see the names.
+router_dns_local: /internal/
+router_dns_upstream: "[/internal/]127.0.0.1:53"
+router_dns_ptr: 127.0.0.1:53
+router_adguard_config: /etc/AdGuardHome/config.yaml

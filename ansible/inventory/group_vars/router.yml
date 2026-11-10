@@ -1,7 +1,8 @@
 ---
-# WireGuard peers and firewall rules on the GL.iNet router, applied by
-# roles/router (docs/plans/phase-4-router-as-code.md). Change this file, run
-# `make router-check` to see the difference, then `make router`.
+# WireGuard peers, firewall rules and internal DNS names on the GL.iNet router,
+# applied by roles/router (docs/plans/phase-4-router-as-code.md,
+# docs/plans/phase-4b-router-dns.md). Change this file, run `make router-check`
+# to see the difference, then `make router`.
 #
 # Nothing secret belongs here. Each peer's private key is in 1Password at
 # op://homelab/wg-peer-<name>/password, and the router's own key stays on the
@@ -38,6 +39,19 @@ wg_access_groups:
   players:
     internet: false
     destinations: *game_destinations
+
+# Names dnsmasq on the router answers. AdGuard answers clients and forwards
+# *.internal to dnsmasq (its upstream line [/internal/]127.0.0.1:53, set by
+# hand; the role checks it's there). homelab.internal is what OpenTofu uses
+# to reach Proxmox, so it must keep working before the cluster exists.
+dns_records:
+  - { name: router.internal, ip: 192.168.8.1 }
+  - { name: homelab.internal, ip: 192.168.8.150 }
+  - { name: k3s-cp-1.internal, ip: 192.168.8.11 }
+  - { name: k3s-worker-1.internal, ip: 192.168.8.12 }
+  - { name: k3s-worker-2.internal, ip: 192.168.8.13 }
+  - { name: palworld.internal, ip: 192.168.8.48 }
+  - { name: argocd.internal, ip: 192.168.8.57 }
 
 # peer_id is the number in the router's section name (peer_1785). A new peer
 # needs an unused one. To remove a peer, add `state: absent` to its entry and

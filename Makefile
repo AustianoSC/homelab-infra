@@ -62,7 +62,7 @@ eso-token: ## Put the 1Password service account token in the cluster (for Extern
 router-check: ## Show what `make router` would change on the router (read-only)
 	cd ansible && ansible-playbook -i inventory/router.yml playbooks/router.yml --check
 
-router: ## Apply WireGuard peers and firewall rules to the router (restores the old config itself if it fails)
+router: ## Apply WireGuard peers, firewall rules and DNS names to the router (restores the old config itself if it fails)
 	cd ansible && ansible-playbook -i inventory/router.yml playbooks/router.yml
 
 wg-client: ## Print a WireGuard client config: make wg-client PEER=friend-1 [QR=1 for a QR code]

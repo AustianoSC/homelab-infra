@@ -1,6 +1,7 @@
 #!/bin/sh
-# Runs on the router (BusyBox ash, no Python): checks the WireGuard peers and
-# firewall rules against the repo, and applies the difference.
+# Runs on the router (BusyBox ash, no Python): checks the WireGuard peers,
+# firewall rules and internal DNS names against the repo, and applies the
+# difference.
 #
 # This is plain shell. templates/run.sh.j2 puts it after the settings it needs
 # (MODE, IFACE, ZONE, SERVER, RESTART, DELAY, ABSENT_IDS) and a desired_batch
@@ -30,7 +31,7 @@ fail() { echo "HOMELAB_ERROR: $*" >&2; exit 1; }
   || fail "wireguard_server.$SERVER.access is not DROP (the UI's allow-access-to-LAN switch is on); turn it off first"
 [ "$(uci -q get "firewall.$ZONE.name" || true)" = "$ZONE" ] \
   || fail "no firewall zone named $ZONE; is the WireGuard server set up in the UI?"
-for c in wireguard_server firewall; do
+for c in wireguard_server firewall dhcp; do
   [ -z "$(uci changes "$c" 2>/dev/null || true)" ] \
     || fail "uncommitted uci changes in $c; commit or revert them first"
 done
@@ -38,17 +39,64 @@ done
 rm -rf "$STAGE"
 mkdir -p "$STAGE/etc" "$STAGE/delta"
 trap 'rm -rf "$STAGE"' EXIT
-cp /etc/config/wireguard_server /etc/config/firewall "$STAGE/etc/"
+cp /etc/config/wireguard_server /etc/config/firewall /etc/config/dhcp "$STAGE/etc/"
 
 # --- What the repo says should exist ----------------------------------------
 desired_batch > "$STATIC"
 DESIRED_RULES=$(sed -n 's/^set firewall\.\(homelab_[A-Za-z0-9_]*\)=rule$/\1/p' "$STATIC" | tr '\n' ' ')
 DESIRED_PEERS=$(sed -n 's/^set wireguard_server\.peer_\([0-9]*\)=peers$/\1/p' "$STATIC" | tr '\n' ' ')
+DESIRED_DNS=$(sed -n 's/^set dhcp\.\(homelab_dns_[A-Za-z0-9_]*\)=domain$/\1/p' "$STATIC" | tr '\n' ' ')
 
-# Prints the uci batch for the config that $U points at. Rules owned by the
-# repo are deleted and re-added, so options removed from the variables go away;
-# peers are updated in place, so options the repo doesn't know (their private
-# key, for one) are never touched.
+# Clients reach AdGuard first: GL.iNet redirects their queries to it. AdGuard
+# must send this zone on to dnsmasq, which is where the names are served. Its
+# config is only read, never written.
+if [ -n "$DESIRED_DNS" ]; then
+  port=$(uci -q get 'dhcp.@dnsmasq[0].port' || true)
+  if [ -n "$port" ] && [ "$port" != 53 ]; then
+    fail "dnsmasq listens on port $port, not 53, so it would not answer these names"
+  fi
+  [ -f "$ADGUARD_CONFIG" ] \
+    || fail "AdGuard's config $ADGUARD_CONFIG is missing; add the upstream $DNS_UPSTREAM in AdGuard Home (Settings, DNS settings, Upstream DNS servers)"
+  grep -qF -e "$DNS_UPSTREAM" "$ADGUARD_CONFIG" \
+    || fail "AdGuard has no upstream $DNS_UPSTREAM; add it in AdGuard Home under Settings, DNS settings, Upstream DNS servers. Without it no client sees these names"
+
+  # Private reverse DNS servers, not the upstream line: 127.0.0.1:53 also
+  # appears inside the upstream, so this reads only the local_ptr_upstreams list.
+  ptr_ok=no
+  in_ptr=no
+  while IFS= read -r line; do
+    case "$line" in
+      "  local_ptr_upstreams:"*) in_ptr=yes; continue ;;
+    esac
+    if [ "$in_ptr" = yes ]; then
+      case "$line" in
+        "    - "*)
+          value=$(printf '%s' "$line" | sed "s/^    - //; s/^[\"']//; s/[\"']\$//")
+          if [ "$value" = "$DNS_PTR" ]; then ptr_ok=yes; fi
+          ;;
+        *) break ;;
+      esac
+    fi
+  done < "$ADGUARD_CONFIG"
+  [ "$ptr_ok" = yes ] \
+    || echo "HOMELAB_WARN: AdGuard's private reverse DNS servers is not $DNS_PTR, so IP-to-name lookups will not use these names."
+
+  # A rewrite wins over the forwarding line, so one for a repo name hides it.
+  names=$(sed -n "s/^set dhcp\.homelab_dns_[A-Za-z0-9_]*\.name='\([^']*\)'$/\1/p" "$STATIC")
+  rewrites=$(sed -n "s/^[[:space:]]*- domain:[[:space:]]*[\"']\{0,1\}\([^\"' ]*\)[\"']\{0,1\}$/\1/p" "$ADGUARD_CONFIG")
+  for domain in $rewrites; do
+    for name in $names; do
+      if [ "$domain" = "$name" ]; then
+        echo "HOMELAB_WARN: AdGuard rewrite $domain overrides the repo; delete it under Filters, DNS rewrites."
+      fi
+    done
+  done
+fi
+
+# Prints the uci batch for the config that $U points at. Rules and DNS names
+# owned by the repo are deleted and re-added, so options removed from the
+# variables go away; peers are updated in place, so options the repo doesn't
+# know (their private key, for one) are never touched.
 build_batch() {
   for s in $DESIRED_RULES; do
     if $U -q get "firewall.$s" >/dev/null 2>&1; then echo "delete firewall.$s"; fi
@@ -57,6 +105,15 @@ build_batch() {
     case " $DESIRED_RULES" in
       *" $s "*) ;;
       *) echo "delete firewall.$s" ;;
+    esac
+  done
+  for s in $DESIRED_DNS; do
+    if $U -q get "dhcp.$s" >/dev/null 2>&1; then echo "delete dhcp.$s"; fi
+  done
+  for s in $($U show dhcp | sed -n 's/^dhcp\.\(homelab_dns_[A-Za-z0-9_]*\)=domain$/\1/p'); do
+    case " $DESIRED_DNS" in
+      *" $s "*) ;;
+      *) echo "delete dhcp.$s" ;;
     esac
   done
   for id in $ABSENT_IDS; do
@@ -68,8 +125,18 @@ build_batch() {
       echo "set wireguard_server.peer_$id.presharedkey_enable='0'"
     fi
   done
+  # "/internal/" makes dnsmasq answer the zone itself. Without it, a name that
+  # isn't defined goes AdGuard -> dnsmasq -> AdGuard until it times out. The
+  # list's other values belong to GL.iNet and are left alone.
+  if [ -n "$DESIRED_DNS" ]; then
+    case " $($U -q get 'dhcp.@dnsmasq[0].server' || true) " in
+      *" $DNS_LOCAL "*) ;;
+      *) echo "add_list dhcp.@dnsmasq[0].server='$DNS_LOCAL'" ;;
+    esac
+  fi
   echo "commit wireguard_server"
   echo "commit firewall"
+  echo "commit dhcp"
 }
 
 # --- Stage the change on copies and see what differs ------------------------
@@ -83,13 +150,15 @@ $U batch < "$STAGE/stage.batch" \
 # compare with sort and uniq: a line that appears once in "cur new new" is only
 # in cur, and one that appears once in "cur cur new" is only in new.
 CHANGED=no
-for c in wireguard_server firewall; do
+DHCP_CHANGED=no
+for c in wireguard_server firewall dhcp; do
   uci show "$c" | grep -v -E 'private_key|presharedkey=' | sort > "$STAGE/$c.cur"
   $U show "$c" | grep -v -E 'private_key|presharedkey=' | sort > "$STAGE/$c.new"
   sort "$STAGE/$c.cur" "$STAGE/$c.new" "$STAGE/$c.new" | uniq -u | sed 's/^/- /' > "$STAGE/$c.removed"
   sort "$STAGE/$c.cur" "$STAGE/$c.cur" "$STAGE/$c.new" | uniq -u | sed 's/^/+ /' > "$STAGE/$c.added"
   if [ -s "$STAGE/$c.removed" ] || [ -s "$STAGE/$c.added" ]; then
     CHANGED=yes
+    if [ "$c" = dhcp ]; then DHCP_CHANGED=yes; fi
     echo "== $c: - removed from the router, + added"
     cat "$STAGE/$c.removed" "$STAGE/$c.added"
   fi
@@ -109,7 +178,7 @@ fi
 # --- Apply, with a way back -------------------------------------------------
 mkdir -p "$RB"
 rm -f "$RB"/*
-cp /etc/config/wireguard_server /etc/config/network /etc/config/firewall "$RB/"
+cp /etc/config/wireguard_server /etc/config/network /etc/config/firewall /etc/config/dhcp "$RB/"
 
 cat > "$RB/restore.sh" <<'HOMELAB_RESTORE'
 #!/bin/sh
@@ -121,8 +190,10 @@ RESTART_WG=no
 cmp -s "$RB/wireguard_server" /etc/config/wireguard_server || RESTART_WG=yes
 uci revert firewall 2>/dev/null
 uci revert wireguard_server 2>/dev/null
-cp "$RB/wireguard_server" "$RB/network" "$RB/firewall" /etc/config/
+uci revert dhcp 2>/dev/null
+cp "$RB/wireguard_server" "$RB/network" "$RB/firewall" "$RB/dhcp" /etc/config/
 /etc/init.d/firewall reload
+/etc/init.d/dnsmasq reload
 if [ "$RESTART_WG" = yes ]; then
   ifdown "$IFACE"
   ifup "$IFACE"
@@ -164,6 +235,11 @@ uci batch < "$STAGE/real.batch" || rollback_now "uci batch failed"
 fw_out=$(/etc/init.d/firewall reload 2>&1) || rollback_now "the firewall didn't reload: $fw_out"
 [ -z "$fw_out" ] || echo "firewall: $fw_out"
 
+if [ "$DHCP_CHANGED" = yes ]; then
+  dns_out=$(/etc/init.d/dnsmasq reload 2>&1) || rollback_now "dnsmasq didn't reload: $dns_out"
+  [ -z "$dns_out" ] || echo "dnsmasq: $dns_out"
+fi
+
 if ip link show "$IFACE" >/dev/null 2>&1; then
   if [ "$RESTART" = yes ]; then
     ifdown "$IFACE" || true
@@ -200,6 +276,29 @@ if ip link show "$IFACE" >/dev/null 2>&1; then
   done
 else
   echo "$IFACE is down, so the live tunnel and the loaded rules weren't checked; they apply when it comes up."
+fi
+
+# dnsmasq directly, not through AdGuard: the router's nslookup can't ask a
+# port other than 53. The task on your machine checks the path clients use.
+if [ -n "$DESIRED_DNS" ]; then
+  sed -n \
+    -e "s/^set dhcp\.homelab_dns_[A-Za-z0-9_]*\.name='\([^']*\)'$/\1/p" \
+    -e "s/^set dhcp\.homelab_dns_[A-Za-z0-9_]*\.ip='\([^']*\)'$/\1/p" \
+    "$STATIC" > "$STAGE/dns"
+  while read -r name && read -r ip; do
+    ip_re=$(printf '%s' "$ip" | sed 's/\./\\./g')
+    tries=0
+    while true; do
+      if nslookup "$name" 127.0.0.1 2>/dev/null | grep -qE "Address( 1)?:[[:space:]]*${ip_re}$"; then
+        break
+      fi
+      tries=$((tries + 1))
+      if [ "$tries" -ge 10 ]; then
+        rollback_now "$name did not resolve to $ip from dnsmasq"
+      fi
+      sleep 1
+    done
+  done < "$STAGE/dns"
 fi
 
 cancel_timer

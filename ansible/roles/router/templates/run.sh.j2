@@ -9,6 +9,10 @@ SERVER='{{ router_server_section }}'
 RESTART='{{ 'yes' if router_wg_restart | bool else 'no' }}'
 DELAY='{{ router_rollback_seconds }}'
 ABSENT_IDS='{{ router_absent_peers | map(attribute='peer_id') | join(' ') }}'
+DNS_LOCAL='{{ router_dns_local }}'
+DNS_UPSTREAM='{{ router_dns_upstream }}'
+DNS_PTR='{{ router_dns_ptr }}'
+ADGUARD_CONFIG='{{ router_adguard_config }}'
 
 desired_batch() {
 cat <<'HOMELAB_DESIRED'

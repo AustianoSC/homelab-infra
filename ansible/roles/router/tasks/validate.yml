@@ -65,6 +65,29 @@
   loop_control:
     label: "{{ item.0.key }}/{{ item.1.name | default('(no name)') }}"
 
+# An empty list is allowed: it means the router answers no names of its own.
+- name: Check each DNS name
+  ansible.builtin.assert:
+    that:
+      - item.name is match('^[a-z0-9]+(-[a-z0-9]+)*(\.[a-z0-9]+(-[a-z0-9]+)*)*\.internal$')
+      - item.ip is match('^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
+    fail_msg: "dns_records entry {{ item.name | default('(no name)') }} must be a *.internal name and an IPv4 address."
+    quiet: true
+  loop: "{{ dns_records | default([]) }}"
+  loop_control:
+    label: "{{ item.name | default('(no name)') }}"
+
+- name: Check DNS names don't collide
+  vars:
+    dns_names: "{{ dns_records | default([]) | map(attribute='name') | list }}"
+    dns_sections: "{{ dns_names | map('regex_replace', '[.-]', '_') | list }}"
+  ansible.builtin.assert:
+    that:
+      - dns_names | unique | length == dns_names | length
+      - dns_sections | unique | length == dns_sections | length
+    fail_msg: Two dns_records entries share a name, or their names become the same section once dots and dashes are underscores.
+    quiet: true
+
 - name: Check at least one peer stays
   ansible.builtin.assert:
     that:

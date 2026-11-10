@@ -2,9 +2,9 @@
    reads the router; files/apply.sh compares this with what is there.
 
    Peers are updated in place, so settings that aren't listed (a peer's
-   private_key, for one) are never touched. Firewall rules named homelab_* are
-   deleted and re-added by apply.sh, so a setting dropped from the variables
-   goes away. #}
+   private_key, for one) are never touched. Firewall rules named homelab_* and
+   dhcp sections named homelab_dns_* are deleted and re-added by apply.sh, so a
+   setting dropped from the variables goes away. #}
 {% for p in router_active_peers %}
 {% set section = 'wireguard_server.peer_' ~ p.peer_id %}
 set {{ section }}=peers
@@ -62,4 +62,10 @@ set {{ rule }}.target='REJECT'
 set {{ rule }}.family='ipv4'
 {% endif %}
 {% endif %}
+{% endfor %}
+{% for record in dns_records | default([]) %}
+{% set section = 'dhcp.homelab_dns_' ~ (record.name | replace('.', '_') | replace('-', '_')) %}
+set {{ section }}=domain
+set {{ section }}.name='{{ record.name }}'
+set {{ section }}.ip='{{ record.ip }}'
 {% endfor %}
