@@ -49,7 +49,7 @@ go to the router's system resolvers, i.e. the ISP's servers in
 show: `/usr/bin/rtp2.sh` and GL.iNet's Tailscale RPC only read it. GL.iNet's
 compiled UI code can't be checked this way, so the role checks the list on
 every run.
-- **WireGuard restarts keep `dhcp` sections.** GL.iNet's WireGuard start and
+- **WireGuard restarts keep** `dhcp` **sections.** GL.iNet's WireGuard start and
 stop scripts run `server_set_dhcp` (`/lib/functions/vpn_server_func.sh`). It
 sets only `localservice` on the dnsmasq section, then runs `uci commit dhcp`
 and reloads dnsmasq. It never deletes sections, so `homelab_*` sections
@@ -119,32 +119,22 @@ anything left staged in `dhcp`.
   dig +short -x 192.168.8.48 @192.168.8.1                        # dnstest.internal.
   dig +short palworld.internal @192.168.8.1                      # still 192.168.8.48
   ```
-  Write down the results:
-  - The A record must come back, and AdGuard's query log must show
-  `dnstest.internal` answered by upstream `127.0.0.1:53`.
-  - The AAAA query must be `NOERROR` with no answer. If it's `NXDOMAIN`, some
-  clients treat the whole name as missing. In that case add an IPv6 entry
-  for each name too (`::ffff:<ip>`, as GL.iNet does for
-  `console.gl-inet.com`) and record that the template writes both.
-  - `nosuch.internal` must be `NXDOMAIN` within milliseconds. A timeout or a
-  `SERVFAIL` after seconds means the query is looping: check the
-  `/internal/` entry is in the `server` list.
-  - The reverse lookup names `dnstest.internal`, because dnsmasq's hosts
-  entries also answer PTR. With two names on one address, dnsmasq returns
-  the first. That's harmless, but note it.
+  Results, from the LAN: `dnstest.internal` answered `192.168.8.48`, the AAAA
+  query was `NOERROR` with no answer (dnsmasq has `filter-AAAA`, so the records
+  stay IPv4 only), `nosuch.internal` was `NXDOMAIN` in 15 ms, the reverse lookup
+  returned `dnstest.internal`, and `palworld.internal` stayed `192.168.8.48`.
   Then remove the test name and keep everything else:
   `ssh router 'uci delete dhcp.homelab_dns_dnstest_internal && uci commit dhcp && /etc/init.d/dnsmasq reload'`.
 
-- [x] **2. Decide on `palworld.fun`.** `.fun` is a real public top-level domain,
-  so this rewrite hides whatever the real `palworld.fun` is, for everyone on
-  the LAN and the tunnel. It can't move to `dns_records`, since only
-  `.internal` reaches dnsmasq. If nothing uses it (friends join with
-  `palworld.internal`), delete it in step 7. If something does, leave it as
-  the one AdGuard rewrite and list it in `docs/bootstrap.md` with what uses it.
+- [x] **2. Decide on** `palworld.fun`**.** Delete it in step 7. `.fun` is a real
+  public top-level domain, so the rewrite hides the real `palworld.fun` for
+  everyone on the LAN and the tunnel, and it can't move to `dns_records`
+  because only `.internal` reaches dnsmasq. Nothing uses it; friends join with
+  `palworld.internal`.
 
 ## Part 2: Write it
 
-- [ ] **3. Add the records to the variables.** In
+- [x] **3. Add the records to the variables.** Done. In
   `ansible/inventory/group_vars/router.yml`:
   ```yaml
   # Names dnsmasq on the router answers. AdGuard answers clients and forwards
@@ -162,7 +152,7 @@ anything left staged in `dhcp`.
   ```
   These are the addresses AdGuard answers today, so no answer changes.
 
-- [ ] **4. Validate them.** In `tasks/validate.yml`:
+- [x] **4. Validate them.** Done. In `tasks/validate.yml`:
   - Each `name` matches `^[a-z0-9]+(-[a-z0-9]+)*(\.[a-z0-9]+(-[a-z0-9]+)*)*\.internal$`,
   and each `ip` is an IPv4 address.
   - Names are unique, and so are their section names after dots and dashes
@@ -170,13 +160,14 @@ anything left staged in `dhcp`.
   `homelab_dns_a_b_internal`).
   - An empty or missing `dns_records` is allowed and means "no names".
 
-- [ ] **5. Render and apply them.** In `templates/uci.batch.j2`, per record:
+- [x] **5. Render and apply them.** Done. Step 1's AAAA query was `NOERROR`, so
+  there is no IPv6 entry. In `templates/uci.batch.j2`, per record:
   ```
   set dhcp.homelab_dns_<name>=domain
   set dhcp.homelab_dns_<name>.name='<name>'
   set dhcp.homelab_dns_<name>.ip='<ip>'
   ```
-  (plus the `::ffff:` entry if step 1 needed it). In `files/apply.sh`:
+  In `files/apply.sh`:
   - Preconditions: no uncommitted changes in `dhcp` (add it to the existing
   loop). Fail if `/etc/AdGuardHome/config.yaml` has no
   `[/internal/]127.0.0.1:53` line, with a message saying where to add it in
@@ -203,23 +194,26 @@ anything left staged in `dhcp`.
   background after a reload. Roll back on a mismatch. This checks dnsmasq;
   the router's BusyBox `nslookup` can't ask AdGuard on port 3053.
   In `tasks/main.yml`, rename the task to "Plan and apply the WireGuard peers,
-  firewall rules and DNS names", and after it (not in `--check`) add a task on
-  your machine that runs `dig +short <name> @192.168.8.1` for each record.
+  firewall rules and DNS names", and after it add a task on your machine that
+  runs `dig +short <name> @192.168.8.1` for each record. It runs after every
+  apply, and in `--check` only when nothing is pending, since a name the dry
+  run would add isn't on the router yet.
   That goes through AdGuard, the path clients use. A mismatch fails the run
   but doesn't roll back: it means AdGuard's settings or a rewrite are wrong,
   not the router config.
 
 ## Part 3: Switch over
 
-- [ ] **6. Dry run, then apply.** `make router-check` must show only seven `+`
+- [x] **6. Dry run, then apply.** `make router-check` must show only seven `+`
   groups of `dhcp.homelab_dns_*` lines (three lines per name) and nothing for
-  `wireguard_server` or `firewall`. It also warns about the eight rewrites
-  that still exist; that's expected. Then `make router`. The names keep
+  `wireguard_server` or `firewall`. It also warns about the seven `.internal`
+  rewrites that still exist (`palworld.fun` isn't one of the repo's names, so
+  it isn't warned about); that's expected. The dry run on 2026-11-09 did
+  exactly that, and changed nothing. Then `make router`. The names keep
   answering from the rewrites, so nothing visible changes yet.
 
-- [ ] **7. Remove the AdGuard rewrites.** In the AdGuard Home UI, under Filters,
-  DNS rewrites, delete the seven `.internal` ones, and `palworld.fun` unless
-  step 2 kept it. Then check:
+- [x] **7. Remove the AdGuard rewrites.** In the AdGuard Home UI, under Filters,
+  DNS rewrites, delete the seven `.internal` ones and `palworld.fun`. Then check:
   - `dig +short <name> @192.168.8.1` for every name, from the LAN, and against
   `10.0.0.1` from an admin peer over WireGuard,
   - `palworld.internal` resolves for a `players` peer (the test phone),
@@ -228,13 +222,13 @@ anything left staged in `dhcp`.
   `ssh k3s-cp-1.internal true`,
   - `make router-check` says nothing to change and no longer warns.
 
-- [ ] **8. Prove a tunnel restart keeps them.** At a quiet time, run
+- [x] **8. Prove a tunnel restart keeps them.** At a quiet time, run
   `ssh router 'ifdown wgserver; ifup wgserver'` (it drops all peers for a few
   seconds and reloads dnsmasq), then check that `make router-check` reports no
   changes and the names still resolve. This is the case where GL.iNet's
   `server_set_dhcp` commits `dhcp`.
 
-- [ ] **9. Docs.** ADR 0010 with the decisions above. In `docs/bootstrap.md`
+- [x] **9. Docs.** Done: ADR 0010 with the decisions above. In `docs/bootstrap.md`
   (Network), replace the table of names with a pointer to `dns_records` in
   `router.yml`. For a router reset: set the two AdGuard settings from step 1
   (Upstream DNS servers line, Private reverse DNS servers), then

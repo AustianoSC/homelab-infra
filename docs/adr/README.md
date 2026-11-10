@@ -15,3 +15,4 @@ they are never rewritten to hide a change of mind.
 | [0007](0007-pull-based-gitops.md) | Pull-based GitOps with Argo CD | Accepted |
 | [0008](0008-external-secrets-for-1password.md) | External Secrets Operator for 1Password secrets | Accepted |
 | [0009](0009-router-config-as-code.md) | Router WireGuard peers and firewall rules as code, with Ansible and `uci` | Accepted |
+| [0010](0010-dns-names-in-dnsmasq.md) | Internal DNS names in dnsmasq, with AdGuard forwarding to it | Accepted |

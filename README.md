@@ -72,7 +72,7 @@ Design choices and their trade-offs are recorded in [docs/adr](docs/adr).
 - [x] Palworld running on the cluster (phase 2); the old VM is kept, shut down, until it's retired
 - [x] Secrets from 1Password via External Secrets, encrypted at rest in k3s ([phase 3](docs/plans/phase-3-external-secrets.md))
 - [x] Router WireGuard peers and firewall rules managed by Ansible ([phase 4](docs/plans/phase-4-router-as-code.md))
-- [ ] Internal `.internal` DNS names managed by Ansible, in dnsmasq on the router ([phase 4b](docs/plans/phase-4b-router-dns.md))
+- [x] Internal `.internal` DNS names managed by Ansible, in dnsmasq on the router ([phase 4b](docs/plans/phase-4b-router-dns.md))
 - [ ] Dependency update PRs with Renovate ([phase 5](docs/plans/phase-5-renovate.md))
 - [ ] Observability (VictoriaMetrics + Grafana), phase 6
 
@@ -233,8 +233,11 @@ server and the game servers, so they can't reach the rest of the LAN.
 
 Every game server gets a fixed address from the `192.168.8.48/29` block, and
 friends' `AllowedIPs` and the firewall rule name that block, so adding a game
-needs no change on either side. Internal names use `.internal` through AdGuard
-Home, since macOS reserves `.local` for mDNS.
+needs no change on either side. Internal names use `.internal`, served by
+dnsmasq on the router from `dns_records` in `group_vars/router.yml`, with
+AdGuard forwarding that zone to it ([ADR 0010](docs/adr/0010-dns-names-in-dnsmasq.md)).
+macOS reserves `.local` for mDNS. Adding a name is one line there and
+`make router`.
 
 The WireGuard peers and the firewall rules that limit them are defined in
 `ansible/inventory/group_vars/router.yml` and applied with `make router` (see
@@ -256,7 +259,11 @@ server's private key back from the 1Password item `wg-server` (over SSH:
 `wg_server.public_key` from `group_vars/router.yml`, `uci commit`, then
 `ifdown wgserver; ifup wgserver`), keep "allow access to the local network"
 off, and run `make router`. Existing client configs keep working. If the key is
-gone, every client needs a new config.
+gone, every client needs a new config. For the `.internal` names, first set
+AdGuard's upstream `[/internal/]127.0.0.1:53` and its private reverse DNS
+server `127.0.0.1:53` (see [ADR 0010](docs/adr/0010-dns-names-in-dnsmasq.md));
+`make router` then puts the names back and refuses to run until the upstream
+line is there.
 
 | Name | Address |
 | --- | --- |

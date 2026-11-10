@@ -56,20 +56,16 @@ and `local` must allow `import` for the Ubuntu cloud image.
   (`192.168.8.11` - `.13`) or the MetalLB pools (`192.168.8.48/29` and
   `192.168.8.56/29`). The GL.iNet default pool is `.100` - `.249`.
 - Give the Proxmox host a DHCP reservation, since it sits inside that pool.
-- AdGuard Home on the router holds the `.internal` names, as rewrites set by
-  hand in its UI (they aren't managed by this repo). After a router reset, add
-  them back:
-
-  | Name | Address | Needed by |
-  | --- | --- | --- |
-  | `homelab.internal` | `192.168.8.150` | OpenTofu (`infra/providers.tf`) and SSH to the Proxmox host |
-  | `router.internal` | `192.168.8.1` | Convenience |
-  | `k3s-cp-1.internal`, `k3s-worker-1.internal`, `k3s-worker-2.internal` | `192.168.8.11` - `.13` | SSH to the nodes (the k3s API certificate also lists these names) |
-  | `palworld.internal` | `192.168.8.48` | Friends joining Palworld |
-  | `argocd.internal` | `192.168.8.57` | Convenience |
-
-  Only `homelab.internal` is required by code: without it `make plan` and
-  `make apply` can't reach Proxmox.
+- The `.internal` names are `dns_records` in
+  `ansible/inventory/group_vars/router.yml`, served by dnsmasq and applied with
+  `make router` ([ADR 0010](adr/0010-dns-names-in-dnsmasq.md)). AdGuard answers
+  clients and forwards `*.internal` to dnsmasq. Only `homelab.internal` is
+  required by code: without it `make plan` and `make apply` can't reach
+  Proxmox. After a router reset, in AdGuard Home (Settings, DNS settings) add
+  `[/internal/]127.0.0.1:53` under Upstream DNS servers and set Private reverse
+  DNS servers to `127.0.0.1:53`, then run `make router`. It adds the names and
+  refuses to run until that upstream line is there. DHCP reservations stay
+  manual.
 
 ## Secrets (1Password, vault `homelab`)
 

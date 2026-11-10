@@ -474,11 +474,10 @@ outside it also needs friends' client configs updated, because their
 `AllowedIPs` live on their devices.
 - **VM 200:** retiring it (phase 2, step 12) becomes deleting the
 `palworld-vm` destination and running `make router`.
-- **DNS and DHCP** (AdGuard rewrites like `palworld.internal`, DHCP
-reservations) stay manual. AdGuard's API needs GL.iNet's login and its config
-file is rewritten by AdGuard and GL.iNet, so managing it costs more than the
-handful of names is worth. The names and which ones code depends on are listed
-in `docs/bootstrap.md` (Network) for a router reset.
+- **DNS and DHCP.** The `.internal` names are managed with the router role
+([phase 4b](phase-4b-router-dns.md),
+[ADR 0010](../adr/0010-dns-names-in-dnsmasq.md)). DHCP reservations stay
+manual.
 
 ## After phase 4
 
